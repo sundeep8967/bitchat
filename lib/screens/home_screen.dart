@@ -66,7 +66,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 children: [
                    TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                    subdomains: const ['a', 'b', 'c', 'd'],
                     userAgentPackageName: 'com.bitchat.app',
                   ),
                   
@@ -153,7 +154,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
               
               // Map Attribution
-              Positioned(bottom: 4, right: 4, child: Text('© OpenStreetMap', style: TextStyle(fontSize: 9, color: Colors.grey[400]))),
+              Positioned(bottom: 4, right: 4, child: Text('© OpenStreetMap, © CartoDB', style: TextStyle(fontSize: 9, color: Colors.grey[600]))),
 
               // 3. Draggable Bottom Sheet
               DraggableScrollableSheet(
