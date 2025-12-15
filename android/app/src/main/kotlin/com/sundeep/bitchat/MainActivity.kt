@@ -89,6 +89,15 @@ class MainActivity: FlutterActivity(), BluetoothMeshDelegate {
                 "isBatteryOptimizationExempt" -> {
                     result.success(isBatteryOptimized())
                 }
+                "setNickname" -> {
+                    val name = call.argument<String>("nickname")
+                    if (name != null) {
+                        saveNickname(name)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGS", "nickname required", null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -140,7 +149,15 @@ class MainActivity: FlutterActivity(), BluetoothMeshDelegate {
         }
     }
 
-    override fun getNickname(): String? = "Me" // TODO: Fetch from preferences
+    override fun getNickname(): String? {
+        val prefs = getSharedPreferences("bitchat_prefs", MODE_PRIVATE)
+        return prefs.getString("nickname", "Me")
+    }
+
+    private fun saveNickname(name: String) {
+        val prefs = getSharedPreferences("bitchat_prefs", MODE_PRIVATE)
+        prefs.edit().putString("nickname", name).apply()
+    }
     override fun isFavorite(peerID: String): Boolean = false
     override fun decryptChannelMessage(encryptedContent: ByteArray, channel: String): String? = null
     override fun didReceiveChannelLeave(channel: String, fromPeer: String) {}

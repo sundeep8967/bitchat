@@ -16,6 +16,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> with TickerProviderStateMixin {
   late AnimationController _globeController;
+  final TextEditingController _nameController = TextEditingController();
 
   @override
   void initState() {
@@ -29,6 +30,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with TickerProvider
   @override
   void dispose() {
     _globeController.dispose();
+    _nameController.dispose();
     super.dispose();
   }
 
@@ -126,10 +128,40 @@ class _OnboardingScreenState extends State<OnboardingScreen> with TickerProvider
                     builder: (context, model, child) {
                       return Column(
                         children: [
+                          // Name Input Field
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white.withOpacity(0.2)),
+                            ),
+                            child: TextField(
+                              controller: _nameController,
+                              style: const TextStyle(color: Colors.white, fontSize: 16),
+                              textAlign: TextAlign.center,
+                              decoration: InputDecoration(
+                                hintText: 'Enter your nickname',
+                                hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                              ),
+                              cursorColor: Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          
                           _buildGlassButton(
                             text: model.state == ViewState.busy ? 'Connecting...' : 'Enter Mesh',
                             onPressed: () async {
-                              await model.enterMesh();
+                              final name = _nameController.text.trim();
+                              if (name.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Please enter a nickname')),
+                                );
+                                return;
+                              }
+                              
+                              await model.enterMesh(name);
                               if (context.mounted) {
                                 Navigator.of(context).pushReplacement(
                                   PageRouteBuilder(

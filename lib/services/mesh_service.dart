@@ -177,6 +177,15 @@ class MeshService {
       print("Failed to request battery exemption: '${e.message}'.");
     }
   }
+
+  /// Set user nickname
+  Future<void> setNickname(String name) async {
+    try {
+      await _channel.invokeMethod('setNickname', {'nickname': name});
+    } on PlatformException catch (e) {
+      print("Failed to set nickname: '${e.message}'.");
+    }
+  }
   
   /// Check if app is exempt from battery optimization
   Future<bool> isBatteryOptimizationExempt() async {
