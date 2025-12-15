@@ -95,6 +95,23 @@ class GeohashMessageHandler(
                     } catch (_: Exception) { null }
                 )
                 withContext(Dispatchers.Main) { messageManager.addChannelMessage("geo:$subscribedGeohash", msg) }
+                
+                // === GATEWAY MODE: RELAY TO MESH ===
+                // If we are here, we received a valid public Internet message for this geohash.
+                // We will re-broadcast it to our local Bluetooth mesh peers so offline users can see it.
+                //
+                // Note: To avoid infinite loops (Mesh -> Gateway -> Nostr -> Gateway -> Mesh), 
+                // we rely on:
+                // 1. `dedupe(event.id)` above (stops re-processing same event)
+                // 2. Mesh-layer loop detection (packet signatures/IDs)
+                try {
+                    val contentToBridge = "From $senderName via Internet: ${event.content}"
+                    com.bitchat.android.services.MessageRouter.tryGetInstance()?.relayToMesh(contentToBridge, senderName)
+                    Log.d(TAG, "🌉 BRIDGE: Relayed incoming Nostr message to local mesh: ${event.id.take(8)}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to bridge message: ${e.message}")
+                }
+
             } catch (e: Exception) {
                 Log.e(TAG, "onEvent error: ${e.message}")
             }

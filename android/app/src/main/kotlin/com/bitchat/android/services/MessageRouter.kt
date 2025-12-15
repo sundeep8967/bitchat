@@ -211,4 +211,19 @@ class MessageRouter private constructor(
         } catch (_: Exception) { null }
         noiseHex?.let { flushOutboxFor(it) }
     }
+    
+    // Bridge external message to Mesh
+    fun relayToMesh(content: String, originalSender: String) {
+        mesh.relayExternalMessage(content, originalSender)
+    }
+
+    // Bridge Mesh message to Nostr
+    fun relayToNostr(content: String, originalSender: String) {
+        // Only forward if we can (NostrTransport handles identity/geohash lookup)
+        val bridgedContent = "From $originalSender via Mesh: $content"
+        nostr.sendPublicGeohashMessage(
+            content = bridgedContent,
+            nickname = mesh.getPeerNicknames()[mesh.myPeerID] ?: "Gateway Host"
+        )
+    }
 }

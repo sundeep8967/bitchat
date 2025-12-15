@@ -474,6 +474,55 @@ class NostrTransport(
             }
         }
     }
+
+    /**
+     * Send a public ephemeral message (kind 20000) to a geohash channel.
+     * Used for bridging Mesh -> Internet messages.
+     */
+    fun sendPublicGeohashMessage(
+        content: String,
+        targetGeohash: String? = null,
+        nickname: String
+    ) {
+        transportScope.launch {
+            try {
+                // Determine geohash
+                val geohash = targetGeohash ?: run {
+                    val selected = try {
+                        com.bitchat.android.geohash.LocationChannelManager.getInstance(context).selectedChannel.value
+                    } catch (_: Exception) { null }
+                    if (selected is com.bitchat.android.geohash.ChannelID.Location) {
+                        selected.channel.geohash
+                    } else {
+                        Log.w(TAG, "NostrTransport: cannot send public message - no target geohash and not in location channel")
+                        return@launch
+                    }
+                }
+
+                val senderIdentity = try {
+                    NostrIdentityBridge.deriveIdentity(geohash, context)
+                } catch (e: Exception) {
+                    Log.e(TAG, "NostrTransport: cannot derive identity for $geohash")
+                    return@launch
+                }
+
+                Log.d(TAG, "📤 Bridging to Nostr: geohash=$geohash content='${content.take(20)}...'")
+                
+                val event = NostrProtocol.createEphemeralGeohashEvent(
+                    content = content,
+                    geohash = geohash,
+                    senderIdentity = senderIdentity,
+                    nickname = nickname
+                )
+                
+                NostrRelayManager.getInstance(context).sendEvent(event)
+                Log.d(TAG, "✅ Bridged message sent to Nostr: ${event.id.take(8)}")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send public geohash message: ${e.message}")
+            }
+        }
+    }
     
     // MARK: - Helper Methods
     

@@ -410,6 +410,26 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
         } catch (e: Exception) {
             Log.e(TAG, "Failed to process broadcast message: ${e.message}")
         }
+        
+        // === GATEWAY MODE: RELAY TO NOSTR (Internet) ===
+        // If we received a valid public text message from the mesh, and we are connected to Nostr,
+        // we can assume the role of a gateway and bridge it out.
+        //
+        // Conditions:
+        // 1. Check if we *should* bridge (e.g. avoid bridging "From X via Internet" messages to prevent loops)
+        // 2. Fire and forget
+        try {
+            val content = String(packet.payload, Charsets.UTF_8)
+            val isAlreadyBridged = content.contains("via Internet") || content.contains("via Mesh")
+            if (!isAlreadyBridged) {
+                 val sender = delegate?.getPeerNickname(peerID) ?: "Unknown"
+                 // Just attempt relay; router/transport will fail gracefully if no geohash/internet
+                 com.bitchat.android.services.MessageRouter.tryGetInstance()?.relayToNostr(content, sender)
+                 Log.d(TAG, "🌍 BRIDGE: Attempted to relay Mesh message to Nostr from $sender")
+            }
+        } catch (e: Exception) {
+            // bridge failure is non-fatal
+        }
     }
     
     /**
