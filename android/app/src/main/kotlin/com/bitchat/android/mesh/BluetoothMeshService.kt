@@ -60,6 +60,10 @@ class BluetoothMeshService(private val context: Context) {
         }
     }
     private var wifiTransportEnabled = true // Can be toggled via debug settings
+    
+    // P2P Social Snap support (torrent-like content distribution)
+    private val snapLocalCache = com.bitchat.android.snap.SnapLocalCache(context)
+    private val snapPacketHandler = com.bitchat.android.snap.SnapPacketHandler(snapLocalCache)
     // Service-level notification manager for background (no-UI) DMs
     private val serviceNotificationManager = com.bitchat.android.ui.NotificationManager(
         context.applicationContext,
@@ -528,6 +532,16 @@ class BluetoothMeshService(private val context: Context) {
                 val req = RequestSyncPacket.decode(routed.packet.payload) ?: return
                 gossipSyncManager.handleRequestSync(fromPeer, req)
             }
+            
+            override fun handleSnap(routed: RoutedPacket) {
+                // P2P social snap - process and relay if new
+                val isNew = snapPacketHandler.handleSnapPacket(routed)
+                if (isNew) {
+                    // Relay to other peers (gossip)
+                    Log.d(TAG, "📤 Relaying new snap to mesh")
+                    connectionManager.broadcastPacket(routed)
+                }
+            }
         }
         
         // BluetoothConnectionManager delegates
@@ -796,7 +810,7 @@ class BluetoothMeshService(private val context: Context) {
     /**
      * Send a file over mesh as a broadcast MESSAGE (public mesh timeline/channels).
      */
-    fun sendFileBroadcast(file: com.bitchat.android.model.BitchatFilePacket) {
+     fun sendFileBroadcast(file: com.bitchat.android.model.BitchatFilePacket) {
         try {
             Log.d(TAG, "📤 sendFileBroadcast: name=${file.fileName}, size=${file.fileSize}")
             val payload = file.encode()
@@ -826,6 +840,92 @@ class BluetoothMeshService(private val context: Context) {
             Log.e(TAG, "❌ sendFileBroadcast failed: ${e.message}", e)
             Log.e(TAG, "❌ File: name=${file.fileName}, size=${file.fileSize}")
         }
+    }
+    
+    /**
+     * Create and broadcast a P2P social snap (torrent-like content distribution).
+     * The snap will propagate through the mesh network peer-to-peer.
+     */
+    fun broadcastSnap(content: ByteArray, contentType: String = "image/jpeg", ttlMs: Long = com.bitchat.android.model.SnapPacket.DEFAULT_TTL_MS) {
+        serviceScope.launch {
+            try {
+                Log.d(TAG, "📸 Creating snap: ${content.size} bytes, type=$contentType")
+                
+                // Get sender info
+                val senderPubKey = encryptionService.getStaticPublicKey() ?: run {
+                    Log.e(TAG, "❌ No public key available for snap")
+                    return@launch
+                }
+                val senderAlias = try { 
+                    com.bitchat.android.services.NicknameProvider.getNickname(context, myPeerID) 
+                } catch (_: Exception) { myPeerID }
+                
+                // Create signature (sign the content)
+                val signature = encryptionService.signData(content) ?: ByteArray(64) // Fallback to empty sig
+                
+                // Create the SnapPacket
+                val snap = com.bitchat.android.model.SnapPacket.create(
+                    senderPubKey = senderPubKey,
+                    senderAlias = senderAlias,
+                    contentType = contentType,
+                    content = content,
+                    signature = signature,
+                    ttlMs = ttlMs
+                )
+                
+                // Store locally first
+                snapLocalCache.store(snap)
+                
+                // Encode and create BitchatPacket for broadcast
+                val snapPayload = snap.encode()
+                val packet = BitchatPacket(
+                    version = 2u,  // Use v2 for large payloads
+                    type = MessageType.SNAP.value,
+                    senderID = hexStringToByteArray(myPeerID),
+                    recipientID = SpecialRecipients.BROADCAST,
+                    timestamp = System.currentTimeMillis().toULong(),
+                    payload = snapPayload,
+                    signature = null,
+                    ttl = MAX_TTL
+                )
+                
+                val signed = signPacketBeforeBroadcast(packet)
+                broadcastToAllTransports(signed)
+                
+                Log.d(TAG, "✅ Snap broadcast: ${snap.snapIdHex()}")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ broadcastSnap failed: ${e.message}", e)
+            }
+        }
+    }
+    
+    /**
+     * Get all active (non-expired) snaps from local cache.
+     * For Flutter to display in the Social Feed.
+     */
+    fun getActiveSnaps(): List<Map<String, Any>> {
+        return snapLocalCache.getAllActive().map { snap ->
+            mapOf(
+                "snapId" to snap.snapIdHex(),
+                "senderPubKey" to snap.senderPubKeyHex(),
+                "senderAlias" to snap.senderAlias,
+                "contentType" to snap.contentType,
+                "content" to android.util.Base64.encodeToString(snap.content, android.util.Base64.NO_WRAP),
+                "timestamp" to snap.timestamp,
+                "expiresAt" to snap.expiresAt
+            )
+        }
+    }
+    
+    /**
+     * Add listener for new snap arrivals (for Flutter event channel)
+     */
+    fun addSnapListener(listener: (com.bitchat.android.model.SnapPacket) -> Unit) {
+        snapLocalCache.addListener(listener)
+    }
+    
+    fun removeSnapListener(listener: (com.bitchat.android.model.SnapPacket) -> Unit) {
+        snapLocalCache.removeListener(listener)
     }
 
     /**

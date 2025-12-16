@@ -98,6 +98,28 @@ class MainActivity: FlutterActivity(), BluetoothMeshDelegate {
                         result.error("INVALID_ARGS", "nickname required", null)
                     }
                 }
+                // P2P Snap Methods
+                "broadcastSnap" -> {
+                    val contentBase64 = call.argument<String>("content")
+                    val contentType = call.argument<String>("contentType") ?: "image/jpeg"
+                    val ttlMs = call.argument<Long>("ttlMs") ?: (24 * 60 * 60 * 1000L)
+                    
+                    if (contentBase64 != null) {
+                        try {
+                            val content = android.util.Base64.decode(contentBase64, android.util.Base64.NO_WRAP)
+                            meshService?.broadcastSnap(content, contentType, ttlMs)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SNAP_FAILED", e.message, null)
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "content required", null)
+                    }
+                }
+                "getActiveSnaps" -> {
+                    val snaps = meshService?.getActiveSnaps() ?: emptyList()
+                    result.success(snaps)
+                }
                 else -> {
                     result.notImplemented()
                 }
