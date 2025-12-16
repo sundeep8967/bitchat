@@ -175,10 +175,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   
   Future<void> _createProfile() async {
     final username = _usernameController.text.trim().toLowerCase();
-    // Use displayName from onboarding (loaded in initState)
-    final displayName = _displayName.isNotEmpty ? _displayName : username;
+    final displayName = _displayNameController.text.trim();
     
     if (username.isEmpty || _status != UsernameStatus.available) return;
+    if (displayName.isEmpty) return;
     
     setState(() => _isClaiming = true);
     HapticFeedback.mediumImpact();
@@ -243,9 +243,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
   
   void _nextStep() {
-    if (_currentStep < 1) {
+    if (_currentStep < 2) {
       setState(() => _currentStep++);
-      if (_currentStep == 1) {
+      if (_currentStep == 2) {
         _usernameController.addListener(_onUsernameChanged);
       }
     } else {
@@ -264,7 +264,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   bool get _canProceed {
     switch (_currentStep) {
       case 0: return true; // Photo is optional
-      case 1: return _status == UsernameStatus.available; // Username step
+      case 1: return _displayNameController.text.trim().isNotEmpty; // Name step
+      case 2: return _status == UsernameStatus.available; // Username step
       default: return false;
     }
   }
