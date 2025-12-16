@@ -52,6 +52,14 @@ class BluetoothMeshService(private val context: Context) {
     internal val connectionManager = BluetoothConnectionManager(context, myPeerID, fragmentManager) // Made internal for access
     private val packetProcessor = PacketProcessor(myPeerID)
     private lateinit var gossipSyncManager: GossipSyncManager
+    
+    // WiFi Transport (optional, for LAN-based peer discovery)
+    private val wifiTransport: com.bitchat.android.wifi.WifiTransportService by lazy {
+        com.bitchat.android.wifi.WifiTransportService(context).also {
+            it.myPeerID = myPeerID
+        }
+    }
+    private var wifiTransportEnabled = true // Can be toggled via debug settings
     // Service-level notification manager for background (no-UI) DMs
     private val serviceNotificationManager = com.bitchat.android.ui.NotificationManager(
         context.applicationContext,
@@ -587,6 +595,36 @@ class BluetoothMeshService(private val context: Context) {
     }
     
     /**
+     * Setup WiFi transport delegate for packet routing
+     */
+    private fun setupWifiTransportDelegate() {
+        wifiTransport.delegate = object : com.bitchat.android.wifi.WifiTransportDelegate {
+            override fun onWifiPeerConnected(peerID: String) {
+                Log.i(TAG, "🌐 WiFi peer connected: $peerID")
+                // Add to peer manager as a WiFi peer
+                peerManager.addOrUpdatePeer(peerID, "WiFi_$peerID")
+                
+                // Send announcement to the new WiFi peer
+                serviceScope.launch {
+                    delay(200)
+                    sendBroadcastAnnounce()
+                }
+            }
+            
+            override fun onWifiPeerDisconnected(peerID: String) {
+                Log.d(TAG, "🌐 WiFi peer disconnected: $peerID")
+                // Don't remove from peer manager immediately - let natural timeout handle it
+            }
+            
+            override fun onWifiPacketReceived(packet: com.bitchat.android.protocol.BitchatPacket, peerID: String) {
+                Log.d(TAG, "📥 Received packet via WiFi from $peerID")
+                // Route through the same packet processor as Bluetooth packets
+                packetProcessor.processPacket(RoutedPacket(packet, peerID, null))
+            }
+        }
+    }
+    
+    /**
      * Start the mesh service
      */
     fun startServices() {
@@ -612,6 +650,16 @@ class BluetoothMeshService(private val context: Context) {
             // Start periodic syncs
             gossipSyncManager.start()
             Log.d(TAG, "GossipSyncManager started")
+            
+            // Start WiFi transport for LAN-based peer discovery
+            if (wifiTransportEnabled) {
+                setupWifiTransportDelegate()
+                if (wifiTransport.start()) {
+                    Log.i(TAG, "🌐 WiFi transport started successfully")
+                } else {
+                    Log.w(TAG, "WiFi transport failed to start (continuing with Bluetooth only)")
+                }
+            }
         } else {
             Log.e(TAG, "Failed to start Bluetooth services")
         }
@@ -639,6 +687,13 @@ class BluetoothMeshService(private val context: Context) {
             // Stop all components
             gossipSyncManager.stop()
             Log.d(TAG, "GossipSyncManager stopped")
+            
+            // Stop WiFi transport
+            if (wifiTransportEnabled) {
+                wifiTransport.stop()
+                Log.d(TAG, "WiFi transport stopped")
+            }
+            
             connectionManager.stopServices()
             Log.d(TAG, "BluetoothConnectionManager stop requested")
             peerManager.shutdown()
@@ -703,6 +758,36 @@ class BluetoothMeshService(private val context: Context) {
             // Sign the packet before broadcasting
             val signedPacket = signPacketBeforeBroadcast(packet)
             connectionManager.broadcastPacket(RoutedPacket(signedPacket))
+            // Track our own broadcast message for sync
+            try { gossipSyncManager.onPublicPacketSeen(signedPacket) } catch (_: Exception) { }
+        }
+    }
+
+    /**
+     * Relay an external message (from Nostr) to the local Bluetooth mesh.
+     * Used for Internet-to-Mesh bridging (Gateway Mode).
+     */
+    fun relayExternalMessage(content: String, originalSender: String) {
+        if (content.isEmpty()) return
+        
+        Log.d(TAG, "🌉 Relaying external message from $originalSender to mesh")
+        
+        serviceScope.launch {
+            val packet = BitchatPacket(
+                version = 1u,
+                type = MessageType.MESSAGE.value,
+                senderID = hexStringToByteArray(myPeerID), // Signed by US (the gateway)
+                recipientID = SpecialRecipients.BROADCAST,
+                timestamp = System.currentTimeMillis().toULong(),
+                payload = content.toByteArray(Charsets.UTF_8),
+                signature = null,
+                ttl = MAX_TTL
+            )
+
+            // Sign the packet before broadcasting
+            val signedPacket = signPacketBeforeBroadcast(packet)
+            connectionManager.broadcastPacket(RoutedPacket(signedPacket))
+            
             // Track our own broadcast message for sync
             try { gossipSyncManager.onPublicPacketSeen(signedPacket) } catch (_: Exception) { }
         }
@@ -793,7 +878,16 @@ class BluetoothMeshService(private val context: Context) {
                         // Use a stable transferId based on the unencrypted file TLV payload for progress tracking
                         val transferId = sha256Hex(filePayload)
                         connectionManager.broadcastPacket(RoutedPacket(signed, transferId = transferId))
-            Log.e(TAG, "❌ File: to=$recipientPeerID, name=${file.fileName}, size=${file.fileSize}")
+                        Log.d(TAG, "✅ Sent encrypted file: to=$recipientPeerID, name=${file.fileName}, size=${file.fileSize}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Failed to send encrypted file: ${e.message}")
+                    }
+                } else {
+                    Log.w(TAG, "No Noise session for $recipientPeerID, cannot send encrypted file")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in sendFilePrivate: ${e.message}")
         }
     }
 
@@ -1055,6 +1149,19 @@ class BluetoothMeshService(private val context: Context) {
         // Sign the packet before broadcasting
         val signedPacket = signPacketBeforeBroadcast(packet)
         connectionManager.broadcastPacket(RoutedPacket(signedPacket))
+    }
+    
+    /**
+     * Broadcast a packet to all available transports (Bluetooth + WiFi)
+     */
+    private fun broadcastToAllTransports(packet: BitchatPacket) {
+        // Broadcast via Bluetooth
+        connectionManager.broadcastPacket(RoutedPacket(packet))
+        
+        // Also broadcast via WiFi if enabled and active
+        if (wifiTransportEnabled && wifiTransport.isActive()) {
+            wifiTransport.broadcastPacket(packet)
+        }
     }
     
     /**

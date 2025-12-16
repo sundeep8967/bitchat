@@ -61,11 +61,11 @@ class StoreForwardManager {
             return
         }
         
-        // Don't cache broadcast messages
-        if (packet.recipientID != null && packet.recipientID.contentEquals(SpecialRecipients.BROADCAST)) {
-            Log.d(TAG, "Skipping cache for broadcast message")
-            return
-        }
+        // Partially enable cache for broadcasts (bridged messages)
+        // if (packet.recipientID != null && packet.recipientID.contentEquals(SpecialRecipients.BROADCAST)) {
+        //    Log.d(TAG, "Skipping cache for broadcast message")
+        //    return
+        // }
         
         // Determine if this is for a favorite peer
         val recipientPeerID = packet.recipientID?.let { recipientID ->
