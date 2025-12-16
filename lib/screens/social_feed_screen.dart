@@ -372,42 +372,66 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
   }
 
   Widget _buildStoryItem(Friend friend) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [Colors.purple[300]!, Colors.blue[300]!],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Container(
-              width: 62, height: 62,
+    final hasSnap = _latestSnaps.containsKey(friend.username);
+    
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        final snap = _latestSnaps[friend.username];
+        if (snap != null) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => _SnapViewerScreen(snap: snap)));
+          FriendService.instance.updateFriendStatus(friend.username, FriendStatus.opened).then((_) {
+            _refreshFriends();
+          });
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No new stories from ${friend.displayName}')),
+          );
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white,
-                border: Border.all(color: Colors.white, width: 2),
+                gradient: hasSnap 
+                  ? LinearGradient(
+                      colors: [Colors.purple[400]!, Colors.blue[400]!],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : LinearGradient(
+                      colors: [Colors.grey[300]!, Colors.grey[400]!],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
               ),
-              child: Center(
-                child: Text(
-                   friend.username.isNotEmpty ? friend.username[0].toUpperCase() : '?',
-                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              child: Container(
+                width: 62, height: 62,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: Center(
+                  child: Text(
+                     friend.username.isNotEmpty ? friend.username[0].toUpperCase() : '?',
+                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            friend.username.length > 8 ? '${friend.username.substring(0,7)}...' : friend.username,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              friend.username.length > 8 ? '${friend.username.substring(0,7)}...' : friend.username,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -621,9 +645,53 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
 
   void _onCameraTap() async {
     HapticFeedback.mediumImpact();
-    final image = await ImagePicker().pickImage(source: ImageSource.camera);
+    // 1. Pick Image (Lower quality for faster P2P mesh transfer)
+    final XFile? image = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 50);
+    
     if (image != null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Processing Snap...')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(children: [
+             SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+             SizedBox(width: 16),
+             Text('Sending Snap via P2P & Internet...')
+          ]),
+          duration: Duration(seconds: 10),
+        ),
+      );
+
+      try {
+        final bytes = await image.readAsBytes();
+        
+        // 2. Send via Service (Both Mesh + Nostr)
+        final success = await SnapService.instance.broadcastSnap(
+          content: bytes,
+          globalBroadcast: true, // Try Internet too
+        );
+        
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Sent! 🐘 (Mesh + Relay)"), 
+              backgroundColor: Color(0xFF2E75FF),
+            )
+          );
+        } else {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Failed to send. using offline mesh only."))
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+         ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Error: $e"))
+          );
+      }
     }
   }
 
@@ -632,41 +700,140 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: 400,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          children: [
-            Container(
-              width: 36, height: 5,
-              margin: const EdgeInsets.only(top: 8, bottom: 20),
-              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2.5)),
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final requests = FriendService.instance.pendingRequests;
+          
+          return Container(
+            height: 450,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             ),
-            const Text(
-              "Friend Requests",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+            child: Column(
+              children: [
+                Container(
+                  width: 36, height: 5,
+                  margin: const EdgeInsets.only(top: 8, bottom: 20),
+                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2.5)),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(LucideIcons.userPlus, size: 48, color: Colors.grey[300]),
-                    const SizedBox(height: 16),
-                    Text(
-                      "No pending requests",
-                      style: TextStyle(color: Colors.grey[500], fontSize: 16),
+                    const Text(
+                      "Friend Requests",
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
+                    if (requests.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2E75FF),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${requests.length}',
+                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-              ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: requests.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(LucideIcons.userPlus, size: 48, color: Colors.grey[300]),
+                            const SizedBox(height: 16),
+                            Text(
+                              "No pending requests",
+                              style: TextStyle(color: Colors.grey[500], fontSize: 16),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: requests.length,
+                        itemBuilder: (context, index) {
+                          final request = requests[index];
+                          final username = request['username'] ?? '';
+                          
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[50],
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: _getAvatarColor(username),
+                                  radius: 24,
+                                  child: Text(
+                                    username.isNotEmpty ? username[0].toUpperCase() : '?',
+                                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('@$username', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      Text('Wants to add you', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                                    ],
+                                  ),
+                                ),
+                                // Accept
+                                IconButton(
+                                  onPressed: () async {
+                                    await FriendService.instance.acceptRequest(username);
+                                    setSheetState(() {});
+                                    _refreshFriends();
+                                    HapticFeedback.lightImpact();
+                                  },
+                                  icon: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF2E75FF),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(LucideIcons.check, color: Colors.white, size: 18),
+                                  ),
+                                ),
+                                // Decline
+                                IconButton(
+                                  onPressed: () async {
+                                    await FriendService.instance.declineRequest(username);
+                                    setSheetState(() {});
+                                    HapticFeedback.lightImpact();
+                                  },
+                                  icon: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[200],
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(LucideIcons.x, color: Colors.grey[600], size: 18),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
