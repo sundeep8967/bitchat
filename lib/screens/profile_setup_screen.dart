@@ -21,15 +21,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   
   final _usernameController = TextEditingController();
   final _displayNameController = TextEditingController();
-  final _bioController = TextEditingController();
   
   File? _profileImage;
   UsernameStatus _status = UsernameStatus.empty;
   String? _errorMessage;
   Timer? _debounceTimer;
   bool _isClaiming = false;
-  int _currentStep = 0; // 0: Photo, 1: Username (simplified - displayName comes from onboarding)
-  String _displayName = ''; // Loaded from SharedPreferences
+  int _currentStep = 0; // 0: Photo, 1: Name, 2: Username
   
   // Instagram-style colors
   static const _instaPink = Color(0xFFE1306C);
@@ -39,21 +37,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   @override
   void initState() {
     super.initState();
-    _loadDisplayName();
-  }
-  
-  Future<void> _loadDisplayName() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _displayName = prefs.getString('displayName') ?? prefs.getString('nickname') ?? '';
-    });
   }
   
   @override
   void dispose() {
     _usernameController.dispose();
     _displayNameController.dispose();
-    _bioController.dispose();
     _debounceTimer?.cancel();
     super.dispose();
   }
@@ -214,10 +203,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         // Save to SharedPreferences for local access
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('username', username);
-        await prefs.setString('displayName', displayName.isNotEmpty ? displayName : username);
-        if (bio.isNotEmpty) {
-          await prefs.setString('bio', bio);
-        }
+        await prefs.setString('displayName', displayName);
+        
         
         HapticFeedback.heavyImpact();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -450,68 +437,6 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildDisplayNameStep() {
-    return Padding(
-      key: const ValueKey('displayName'),
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: [
-          const SizedBox(height: 40),
-          Text(
-            'What\'s your name?',
-            style: TextStyle(color: Colors.grey[300], fontSize: 18),
-          ).animate().fadeIn(),
-          const SizedBox(height: 8),
-          Text(
-            'This is how you\'ll appear to others',
-            style: TextStyle(color: Colors.grey[600], fontSize: 14),
-          ).animate().fadeIn(delay: 100.ms),
-          const SizedBox(height: 40),
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C1C1E),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _instaPink.withOpacity(0.3), width: 2),
-            ),
-            child: TextField(
-              controller: _displayNameController,
-              style: const TextStyle(color: Colors.white, fontSize: 18),
-              textAlign: TextAlign.center,
-              decoration: const InputDecoration(
-                hintText: 'Your Name',
-                hintStyle: TextStyle(color: Colors.grey),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-              ),
-              textCapitalization: TextCapitalization.words,
-              onChanged: (_) => setState(() {}),
-            ),
-          ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
-          const SizedBox(height: 24),
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF1C1C1E),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: TextField(
-              controller: _bioController,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-              maxLines: 3,
-              maxLength: 150,
-              decoration: InputDecoration(
-                hintText: 'Add a short bio (optional)',
-                hintStyle: TextStyle(color: Colors.grey[600]),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.all(16),
-                counterStyle: TextStyle(color: Colors.grey[600]),
-              ),
-            ),
-          ).animate().fadeIn(delay: 300.ms),
         ],
       ),
     );

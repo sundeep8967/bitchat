@@ -1,4 +1,3 @@
-import 'package:shared_preferences/shared_preferences.dart';
 import 'base_viewmodel.dart';
 import '../services/mesh_service.dart';
 
@@ -6,27 +5,16 @@ class OnboardingViewModel extends BaseViewModel {
   bool _isNavigating = false;
   bool get isNavigating => _isNavigating;
 
-  Future<void> enterMesh(String nickname) async {
+  Future<void> enterMesh() async {
     setState(ViewState.busy);
     _isNavigating = true;
     
-    // Set nickname in native layer
-    await MeshService().setNickname(nickname);
-    await MeshService().startMesh(); // Ensure mesh is started
+    // Start mesh service
+    await MeshService().startMesh();
     
-    // Save nickname to SharedPreferences for profile use
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('nickname', nickname);
-    // Also use as displayName if not set
-    if (prefs.getString('displayName') == null) {
-      await prefs.setString('displayName', nickname);
-    }
-    
-    // Simulate some initialization or permission checks
-    await Future.delayed(const Duration(milliseconds: 800));
+    // Brief initialization delay
+    await Future.delayed(const Duration(milliseconds: 500));
     
     setState(ViewState.idle);
-    // Navigation should be handled by the View based on state or callback
   }
 }
-
