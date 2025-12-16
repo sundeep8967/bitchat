@@ -588,3 +588,105 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
     return '${diff.inDays}d';
   }
 }
+
+/// Simple Snap Viewer Screen
+class _SnapViewerScreen extends StatelessWidget {
+  final Snap snap;
+  
+  const _SnapViewerScreen({required this.snap});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Display snap content (image or placeholder)
+            if (snap.contentType.startsWith('image/'))
+              Image.memory(
+                snap.content,
+                fit: BoxFit.contain,
+              )
+            else
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  margin: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[900],
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    String.fromCharCodes(snap.content),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            
+            // Top bar with sender info
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: Colors.grey[700],
+                        child: Text(
+                          snap.senderAlias.isNotEmpty 
+                              ? snap.senderAlias[0].toUpperCase() 
+                              : '?',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        snap.senderAlias,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            
+            // Tap to close hint
+            Positioned(
+              bottom: 40,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Text(
+                  'Tap to close',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
