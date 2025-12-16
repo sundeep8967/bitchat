@@ -302,10 +302,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: Row(
-                children: List.generate(2, (i) => Expanded(
+                children: List.generate(3, (i) => Expanded(
                   child: Container(
                     height: 4,
-                    margin: EdgeInsets.only(right: i < 1 ? 8 : 0),
+                    margin: EdgeInsets.only(right: i < 2 ? 8 : 0),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(2),
                       gradient: i <= _currentStep
@@ -375,7 +375,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       case 0:
         return _buildPhotoStep();
       case 1:
-        return _buildUsernameStep(); // Skip displayName step - already from onboarding
+        return _buildDisplayNameStep();
+      case 2:
+        return _buildUsernameStep();
       default:
         return const SizedBox();
     }
@@ -438,6 +440,48 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildDisplayNameStep() {
+    return Padding(
+      key: const ValueKey('displayName'),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        children: [
+          const SizedBox(height: 40),
+          Text(
+            'What\'s your name?',
+            style: TextStyle(color: Colors.grey[300], fontSize: 18),
+          ).animate().fadeIn(),
+          const SizedBox(height: 8),
+          Text(
+            'This is how you\'ll appear to others',
+            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+          ).animate().fadeIn(delay: 100.ms),
+          const SizedBox(height: 40),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _instaPink.withValues(alpha: 0.3), width: 2),
+            ),
+            child: TextField(
+              controller: _displayNameController,
+              style: const TextStyle(color: Colors.white, fontSize: 18),
+              textAlign: TextAlign.center,
+              decoration: const InputDecoration(
+                hintText: 'Your Name',
+                hintStyle: TextStyle(color: Colors.grey),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              ),
+              textCapitalization: TextCapitalization.words,
+              onChanged: (_) => setState(() {}),
+            ),
+          ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
         ],
       ),
     );
