@@ -12,6 +12,7 @@ import com.bitchat.android.mesh.BluetoothMeshService
 import com.bitchat.android.mesh.BluetoothMeshDelegate
 import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.service.MeshForegroundService
+import kotlinx.coroutines.*
 
 class MainActivity: FlutterActivity(), BluetoothMeshDelegate {
     private val CHANNEL = "com.sundeep.bitchat/mesh"
@@ -119,6 +120,107 @@ class MainActivity: FlutterActivity(), BluetoothMeshDelegate {
                 "getActiveSnaps" -> {
                     val snaps = meshService?.getActiveSnaps() ?: emptyList()
                     result.success(snaps)
+                }
+                // Username registration and search via Nostr
+                "checkUsernameAvailability" -> {
+                    val username = call.argument<String>("username")
+                    if (username != null) {
+                        GlobalScope.launch(Dispatchers.IO) {
+                            try {
+                                val usernameService = com.bitchat.android.nostr.UsernameService.getInstance(this@MainActivity)
+                                val checkResult = usernameService.checkAvailability(username)
+                                withContext(Dispatchers.Main) {
+                                    when (checkResult) {
+                                        is com.bitchat.android.nostr.UsernameCheckResult.Available -> result.success("available")
+                                        is com.bitchat.android.nostr.UsernameCheckResult.Taken -> result.success("taken")
+                                        is com.bitchat.android.nostr.UsernameCheckResult.Invalid -> result.success("invalid: ${checkResult.reason}")
+                                        is com.bitchat.android.nostr.UsernameCheckResult.Error -> result.success("error: ${checkResult.message}")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    result.error("CHECK_FAILED", e.message, null)
+                                }
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "username required", null)
+                    }
+                }
+                "claimUsername" -> {
+                    val username = call.argument<String>("username")
+                    if (username != null) {
+                        GlobalScope.launch(Dispatchers.IO) {
+                            try {
+                                val usernameService = com.bitchat.android.nostr.UsernameService.getInstance(this@MainActivity)
+                                val claimResult = usernameService.claimUsername(username)
+                                withContext(Dispatchers.Main) {
+                                    when (claimResult) {
+                                        is com.bitchat.android.nostr.ClaimResult.Success -> result.success("success")
+                                        is com.bitchat.android.nostr.ClaimResult.AlreadyTaken -> result.success("taken")
+                                        is com.bitchat.android.nostr.ClaimResult.InvalidUsername -> result.success("invalid: ${claimResult.reason}")
+                                        is com.bitchat.android.nostr.ClaimResult.Failed -> result.success("error: ${claimResult.message}")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    result.error("CLAIM_FAILED", e.message, null)
+                                }
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "username required", null)
+                    }
+                }
+                "claimProfile" -> {
+                    val username = call.argument<String>("username")
+                    val displayName = call.argument<String>("displayName")
+                    val bio = call.argument<String>("bio")
+                    val profileImage = call.argument<String>("profileImage")
+                    
+                    if (username != null) {
+                        GlobalScope.launch(Dispatchers.IO) {
+                            try {
+                                val usernameService = com.bitchat.android.nostr.UsernameService.getInstance(this@MainActivity)
+                                val claimResult = usernameService.claimProfile(username, displayName, bio, profileImage)
+                                withContext(Dispatchers.Main) {
+                                    when (claimResult) {
+                                        is com.bitchat.android.nostr.ClaimResult.Success -> result.success("success")
+                                        is com.bitchat.android.nostr.ClaimResult.AlreadyTaken -> result.success("taken")
+                                        is com.bitchat.android.nostr.ClaimResult.InvalidUsername -> result.success("invalid: ${claimResult.reason}")
+                                        is com.bitchat.android.nostr.ClaimResult.Failed -> result.success("error: ${claimResult.message}")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    result.error("CLAIM_FAILED", e.message, null)
+                                }
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "username required", null)
+                    }
+                }
+                "searchUsername" -> {
+                    val query = call.argument<String>("query")
+                    if (query != null) {
+                        GlobalScope.launch(Dispatchers.IO) {
+                            try {
+                                val usernameService = com.bitchat.android.nostr.UsernameService.getInstance(this@MainActivity)
+                                val results = usernameService.searchUsername(query)
+                                val resultList = results.map { mapOf("username" to it.username, "pubkey" to it.pubkey) }
+                                withContext(Dispatchers.Main) {
+                                    result.success(resultList)
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    result.error("SEARCH_FAILED", e.message, null)
+                                }
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "query required", null)
+                    }
                 }
                 else -> {
                     result.notImplemented()
