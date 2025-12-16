@@ -743,11 +743,16 @@ class NostrRelayManager private constructor() {
         val errorMessage = error.message?.lowercase() ?: ""
         if (errorMessage.contains("hostname could not be found") || 
             errorMessage.contains("dns") ||
-            errorMessage.contains("unable to resolve host")) {
+            errorMessage.contains("unable to resolve host") ||
+            errorMessage.contains("network is unreachable")) {
+            
+            Log.e(TAG, "🚨 NETWORK ERROR: Unable to reach relay $relayUrl")
+            Log.e(TAG, "🚨 CAUSE: DNS Resolution Failed or No Internet Connection.")
+            Log.e(TAG, "🚨 ACTION REQUIRED: Check device internet settings (on Emulator: Cold Boot or toggle WiFi).")
             
             val relay = relaysList.find { it.url == relayUrl }
             if (relay?.lastError == null) {
-                Log.w(TAG, "Nostr relay DNS failure for $relayUrl - not retrying")
+                Log.w(TAG, "Nostr relay DNS failure for $relayUrl - not retrying immediately")
             }
             return
         }

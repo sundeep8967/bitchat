@@ -70,9 +70,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> with TickerProvider
 
           // 3. Floating Glass UI Content
           SafeArea(
-            child: Column(
-              children: [
-                const Spacer(flex: 2),
+            child: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 60),
                 
                 // Hero Text
                 Padding(
@@ -117,7 +123,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with TickerProvider
                   ),
                 ),
 
-                const Spacer(flex: 3),
+                const SizedBox(height: 60),
 
                 // Action Area
                 Padding(
@@ -147,7 +153,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> with TickerProvider
                           Text(
                             'Powered by BitChat Protocol v1.0',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.3),
+                              color: Colors.white.withValues(alpha: 0.3),
                               fontSize: 12,
                             ),
                           ),
@@ -156,12 +162,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> with TickerProvider
                     },
                   ),
                 ).animate().fadeIn(delay: 1000.ms).slideY(begin: 1, end: 0),
+                const SizedBox(height: 40),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
+            ), // Column
+          ), // ConstrainedBox
+        ), // SingleChildScrollView
+      ), // SafeArea
+      ],
+    ),
+  );
   }
 
   Widget _buildGlassButton({required String text, required VoidCallback onPressed}) {

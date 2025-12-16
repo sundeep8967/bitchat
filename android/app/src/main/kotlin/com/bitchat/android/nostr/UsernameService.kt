@@ -44,6 +44,16 @@ class UsernameService private constructor(private val context: Context) {
         // Load saved username
         val prefs = context.getSharedPreferences("bitchat_username", Context.MODE_PRIVATE)
         _myUsername.value = prefs.getString("username", null)
+        
+        // Ensure relays are connected for username queries
+        scope.launch {
+            try {
+                relayManager.connect()
+                Log.d(TAG, "📡 UsernameService: Connected to Nostr relays")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to connect relays: ${e.message}")
+            }
+        }
     }
     
     /**
@@ -232,6 +242,14 @@ class UsernameService private constructor(private val context: Context) {
     private suspend fun queryUsernameFromRelays(username: String): String? {
         return withContext(Dispatchers.IO) {
             try {
+                // Ensure connected
+                if (!relayManager.isConnected.value) {
+                    Log.d(TAG, "📡 Connecting to relays before query...")
+                    relayManager.connect()
+                    // Give it a moment to connect
+                    delay(1500)
+                }
+
                 Log.d(TAG, "🔍 Querying relays for username: $username")
                 
                 // Create a filter for kind:0 metadata events
@@ -275,6 +293,18 @@ class UsernameService private constructor(private val context: Context) {
     private suspend fun searchUsernamesFromRelays(query: String): List<UserSearchResult> {
         return withContext(Dispatchers.IO) {
             try {
+                // Ensure connected
+                if (!relayManager.isConnected.value) {
+                    Log.d(TAG, "📡 Connecting to relays before search...")
+                    relayManager.connect()
+                    // Give it a moment to connect
+                    delay(1500)
+                }
+                
+                if (!relayManager.isConnected.value) {
+                     Log.e(TAG, "⚠️ SEARCH WARNING: Still offline after connection attempt. Search will likely fail or return only local results.")
+                }
+
                 Log.d(TAG, "🔍 Searching relays for: $query")
                 
                 val results = mutableListOf<UserSearchResult>()
