@@ -10,6 +10,7 @@ import '../viewmodels/room_viewmodel.dart';
 import '../models/room.dart';
 import 'chat_screen.dart';
 import 'room_chat_screen.dart';
+import 'social_feed_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,7 +22,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late final MapController _mapController;
   final DraggableScrollableController _sheetController = DraggableScrollableController();
-  int _selectedTab = 0; // 0=Nearby, 1=Rooms
+  int _selectedTab = 0; // 0=Nearby, 1=Rooms (Within Map Tab)
+  int _currentNavIndex = 0; // 0=Map/Chat, 1=Social
   
   // Bengaluru Center (user's location)
   final _center = const LatLng(12.9716, 77.5946); 
@@ -42,178 +44,205 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Consumer2<HomeViewModel, RoomViewModel>(
-        builder: (context, homeModel, roomModel, child) {
-          final peerLocations = List.generate(homeModel.mockPeers.length, (index) {
-             final offset = (index + 1) * 0.003; 
-             return LatLng(
-               _center.latitude + (offset * (index % 2 == 0 ? 1 : -1)), 
-               _center.longitude + (offset * (index % 2 == 0 ? -1 : 1))
-             );
-          });
+      backgroundColor: _currentNavIndex == 1 ? Colors.black : Colors.white,
+      body: _currentNavIndex == 0 
+          ? _buildMapInterface(context) 
+          : const SocialFeedScreen(),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: _currentNavIndex == 1 ? Colors.black : Colors.white,
+          border: Border(top: BorderSide(color: _currentNavIndex == 1 ? Colors.pinkAccent.withOpacity(0.2) : Colors.grey[200]!, width: 0.5)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _currentNavIndex,
+          onTap: (index) => setState(() => _currentNavIndex = index),
+          backgroundColor: Colors.transparent, 
+          elevation: 0,
+          selectedItemColor: _currentNavIndex == 1 ? Colors.pinkAccent : const Color(0xFF2E75FF),
+          unselectedItemColor: _currentNavIndex == 1 ? Colors.pinkAccent.withOpacity(0.4) : Colors.grey[400],
+          showSelectedLabels: false,
+          showUnselectedLabels: false,
+          type: BottomNavigationBarType.fixed,
+          items: const [
+            BottomNavigationBarItem(icon: Icon(LucideIcons.map), label: 'Map'),
+            BottomNavigationBarItem(icon: Icon(LucideIcons.messageCircle), label: 'Social'),
+          ],
+        ),
+      ),
+    );
+  }
 
-          return Stack(
-            children: [
-              // 1. Interactive Map Layer
-              FlutterMap(
-                mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: _center,
-                  initialZoom: 14,
-                  minZoom: 3,
-                  maxZoom: 18,
+  Widget _buildMapInterface(BuildContext context) {
+    return Consumer2<HomeViewModel, RoomViewModel>(
+      builder: (context, homeModel, roomModel, child) {
+        final peerLocations = List.generate(homeModel.mockPeers.length, (index) {
+           final offset = (index + 1) * 0.003; 
+           return LatLng(
+             _center.latitude + (offset * (index % 2 == 0 ? 1 : -1)), 
+             _center.longitude + (offset * (index % 2 == 0 ? -1 : 1))
+           );
+        });
+
+        return Stack(
+          children: [
+            // 1. Interactive Map Layer
+            FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: _center,
+                initialZoom: 14,
+                minZoom: 3,
+                maxZoom: 18,
+              ),
+              children: [
+                 TileLayer(
+                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                  subdomains: const ['a', 'b', 'c', 'd'],
+                  userAgentPackageName: 'com.bitchat.app',
                 ),
-                children: [
-                   TileLayer(
-                    urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-                    subdomains: const ['a', 'b', 'c', 'd'],
-                    userAgentPackageName: 'com.bitchat.app',
-                  ),
-                  
-                  PolylineLayer(
-                    polylines: peerLocations.map<Polyline>((peerLoc) {
-                      return Polyline(
-                        points: [_center, peerLoc],
-                        color: const Color(0xFF2E75FF).withOpacity(0.4),
-                        strokeWidth: 2.0,
-                      );
-                    }).toList(),
-                  ),
-                  
-                  MarkerLayer(
-                    markers: [
-                      Marker(
-                        point: _center,
-                        width: 80,
-                        height: 80,
-                        child: _buildAvatar(name: 'You', imageUrl: 'https://i.pravatar.cc/150?u=you', isMe: true),
-                      ),
-                      ...List.generate(peerLocations.length, (index) {
-                         return Marker(
-                           point: peerLocations[index],
-                           width: 60,
-                           height: 60,
-                           child: GestureDetector(
-                             onTap: () => Navigator.push(context, MaterialPageRoute(
-                               builder: (_) => ChatScreen(peerName: 'mesh_user_$index', peerId: 'peer_$index'),
-                             )),
-                             child: _buildAvatar(name: 'Peer ${index+1}', imageUrl: 'https://i.pravatar.cc/150?u=$index', isMe: false),
-                           ),
-                         );
-                      }),
-                    ],
-                  ),
-                ],
-              ),
-              
-              // Fade overlay at top
-              Positioned(
-                top: 0, left: 0, right: 0, height: 120,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.white.withOpacity(0.95), Colors.white.withOpacity(0.0)],
+                
+                PolylineLayer(
+                  polylines: peerLocations.map<Polyline>((peerLoc) {
+                    return Polyline(
+                      points: [_center, peerLoc],
+                      color: const Color(0xFF2E75FF).withOpacity(0.4),
+                      strokeWidth: 2.0,
+                    );
+                  }).toList(),
+                ),
+                
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _center,
+                      width: 80,
+                      height: 80,
+                      child: _buildAvatar(name: 'You', imageUrl: 'https://i.pravatar.cc/150?u=you', isMe: true),
                     ),
+                    ...List.generate(peerLocations.length, (index) {
+                       return Marker(
+                         point: peerLocations[index],
+                         width: 60,
+                         height: 60,
+                         child: GestureDetector(
+                           onTap: () => Navigator.push(context, MaterialPageRoute(
+                             builder: (_) => ChatScreen(peerName: 'mesh_user_$index', peerId: 'peer_$index'),
+                           )),
+                           child: _buildAvatar(name: 'Peer ${index+1}', imageUrl: 'https://i.pravatar.cc/150?u=$index', isMe: false),
+                         ),
+                       );
+                    }),
+                  ],
+                ),
+              ],
+            ),
+            
+            // Fade overlay at top
+            Positioned(
+              top: 0, left: 0, right: 0, height: 120,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.white.withOpacity(0.95), Colors.white.withOpacity(0.0)],
                   ),
                 ),
               ),
+            ),
 
-              // 2. Floating Header Card
-              Positioned(
-                top: 60, left: 20, right: 20,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 20, offset: const Offset(0, 10))],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), shape: BoxShape.circle),
-                        child: const Icon(LucideIcons.mapPin, color: Colors.blue, size: 18),
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Bengaluru Mesh', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36))),
-                          Text('${homeModel.mockPeers.length} nodes • ${roomModel.rooms.length} rooms', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                        ],
-                      ),
-                      const Spacer(),
-                      IconButton(icon: const Icon(LucideIcons.crosshair, color: Colors.grey, size: 20), onPressed: () => _mapController.move(_center, 15)),
-                    ],
-                  ),
-                ).animate().slideY(begin: -1, end: 0, duration: 600.ms, curve: Curves.easeOutBack),
-              ),
-              
-              // Map Attribution
-              Positioned(bottom: 4, right: 4, child: Text('© OpenStreetMap, © CartoDB', style: TextStyle(fontSize: 9, color: Colors.grey[600]))),
-
-              // 3. Draggable Bottom Sheet
-              DraggableScrollableSheet(
-                controller: _sheetController,
-                initialChildSize: 0.35,
-                minChildSize: 0.15,
-                maxChildSize: 0.85,
-                builder: (context, scrollController) {
-                  return Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                      boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -5))],
+            // 2. Floating Header Card
+            Positioned(
+              top: 60, left: 20, right: 20,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 20, offset: const Offset(0, 10))],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), shape: BoxShape.circle),
+                      child: const Icon(LucideIcons.mapPin, color: Colors.blue, size: 18),
                     ),
-                    child: Column(
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Handle
-                        Container(
-                          margin: const EdgeInsets.only(top: 12, bottom: 8),
-                          width: 40, height: 4,
-                          decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
-                        ),
-                        
-                        // Tabs
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Row(
-                            children: [
-                              _buildTab('Nearby', LucideIcons.radio, 0),
-                              const SizedBox(width: 12),
-                              _buildTab('Rooms', LucideIcons.lock, 1),
-                              const Spacer(),
-                              // Quick actions
-                              if (_selectedTab == 1) ...[
-                                _buildIconButton(LucideIcons.plus, 'Create', () => _showCreateRoomDialog(roomModel)),
-                                const SizedBox(width: 8),
-                                _buildIconButton(LucideIcons.key, 'Join', () => _showJoinRoomDialog(roomModel)),
-                              ],
-                            ],
-                          ),
-                        ),
-                        
-                        const SizedBox(height: 12),
-                        
-                        // Content
-                        Expanded(
-                          child: _selectedTab == 0
-                            ? _buildNearbyList(homeModel, peerLocations, scrollController)
-                            : _buildRoomsList(roomModel, scrollController),
-                        ),
+                        const Text('Bengaluru Mesh', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A1F36))),
+                        Text('${homeModel.mockPeers.length} nodes • ${roomModel.rooms.length} rooms', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       ],
                     ),
-                  );
-                },
-              ),
-            ],
-          );
-        },
-      ),
+                    const Spacer(),
+                    IconButton(icon: const Icon(LucideIcons.crosshair, color: Colors.grey, size: 20), onPressed: () => _mapController.move(_center, 15)),
+                  ],
+                ),
+              ).animate().slideY(begin: -1, end: 0, duration: 600.ms, curve: Curves.easeOutBack),
+            ),
+            
+            // Map Attribution
+            Positioned(bottom: 4, right: 4, child: Text('© OpenStreetMap, © CartoDB', style: TextStyle(fontSize: 9, color: Colors.grey[600]))),
+
+            // 3. Draggable Bottom Sheet
+            DraggableScrollableSheet(
+              controller: _sheetController,
+              initialChildSize: 0.35,
+              minChildSize: 0.15,
+              maxChildSize: 0.85,
+              builder: (context, scrollController) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -5))],
+                  ),
+                  child: Column(
+                    children: [
+                      // Handle
+                      Container(
+                        margin: const EdgeInsets.only(top: 12, bottom: 8),
+                        width: 40, height: 4,
+                        decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                      ),
+                      
+                      // Tabs
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          children: [
+                            _buildTab('Nearby', LucideIcons.radio, 0),
+                            const SizedBox(width: 12),
+                            _buildTab('Rooms', LucideIcons.lock, 1),
+                            const Spacer(),
+                            // Quick actions
+                            if (_selectedTab == 1) ...[
+                              _buildIconButton(LucideIcons.plus, 'Create', () => _showCreateRoomDialog(roomModel)),
+                              const SizedBox(width: 8),
+                              _buildIconButton(LucideIcons.key, 'Join', () => _showJoinRoomDialog(roomModel)),
+                            ],
+                          ],
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 12),
+                      
+                      // Content
+                      Expanded(
+                        child: _selectedTab == 0
+                          ? _buildNearbyList(homeModel, peerLocations, scrollController)
+                          : _buildRoomsList(roomModel, scrollController),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
