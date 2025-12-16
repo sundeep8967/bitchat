@@ -22,21 +22,60 @@ class SnapService {
   // Stream of incoming snaps
   Stream<Snap>? _snapStream;
   
-  /// Broadcast a new snap to the mesh network
+  /// Broadcast a new snap to the mesh network AND globally via Nostr
   Future<bool> broadcastSnap({
     required Uint8List content,
     String contentType = 'image/jpeg',
     int ttlMs = 24 * 60 * 60 * 1000, // 24 hours default
+    bool globalBroadcast = true, // Also send via Nostr for global reach
   }) async {
     try {
+      final contentBase64 = base64Encode(content);
+      
+      // 1. Broadcast to local mesh
       final result = await _channel.invokeMethod('broadcastSnap', {
+        'content': contentBase64,
+        'contentType': contentType,
+        'ttlMs': ttlMs,
+      });
+      
+      // 2. Also broadcast globally via Nostr (for worldwide reach)
+      if (globalBroadcast) {
+        try {
+          await _channel.invokeMethod('broadcastSnapGlobal', {
+            'content': contentBase64,
+            'contentType': contentType,
+            'ttlMs': ttlMs,
+          });
+        } catch (e) {
+          print('⚠️ Global broadcast failed (mesh still works): $e');
+        }
+      }
+      
+      return result == true;
+    } catch (e) {
+      print('❌ SnapService.broadcastSnap failed: $e');
+      return false;
+    }
+  }
+  
+  /// Send a snap to a specific user (worldwide via Nostr DM)
+  Future<bool> sendSnapToUser({
+    required String recipientNpubOrHex,
+    required Uint8List content,
+    String contentType = 'image/jpeg',
+    int ttlMs = 24 * 60 * 60 * 1000,
+  }) async {
+    try {
+      await _channel.invokeMethod('sendSnapToUser', {
+        'recipient': recipientNpubOrHex,
         'content': base64Encode(content),
         'contentType': contentType,
         'ttlMs': ttlMs,
       });
-      return result == true;
+      return true;
     } catch (e) {
-      print('❌ SnapService.broadcastSnap failed: $e');
+      print('❌ SnapService.sendSnapToUser failed: $e');
       return false;
     }
   }

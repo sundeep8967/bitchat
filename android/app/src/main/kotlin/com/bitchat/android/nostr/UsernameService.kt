@@ -230,19 +230,98 @@ class UsernameService private constructor(private val context: Context) {
     }
     
     private suspend fun queryUsernameFromRelays(username: String): String? {
-        // This is a simplified implementation
-        // In production, you'd subscribe to relays and collect responses
-        // For now, we return null (not found) - username checking happens locally
-        // The full implementation would need to add REQ filter for kind:0
-        // with search/content matching on the "name" field
-        return null
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "🔍 Querying relays for username: $username")
+                
+                // Create a filter for kind:0 metadata events
+                // We'll search across all profiles and filter by name field
+                val filter = NostrFilter(
+                    kinds = listOf(NostrKind.METADATA),
+                    limit = 100
+                )
+                
+                var foundPubkey: String? = null
+                val latch = java.util.concurrent.CountDownLatch(1)
+                
+                relayManager.subscribe(filter, "username-query-$username", handler = { event ->
+                    try {
+                        // Parse the content as JSON metadata
+                        val metadata = JsonParser.parseString(event.content).asJsonObject
+                        val name = metadata.get("name")?.asString?.lowercase()
+                        
+                        if (name == username.lowercase()) {
+                            foundPubkey = event.pubkey
+                            usernameCache[username.lowercase()] = event.pubkey
+                            latch.countDown()
+                        }
+                    } catch (e: Exception) {
+                        // Ignore parsing errors
+                    }
+                })
+                
+                // Wait for results with timeout
+                latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+                relayManager.unsubscribe("username-query-$username")
+                
+                foundPubkey
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to query username from relays: ${e.message}")
+                null
+            }
+        }
     }
     
     private suspend fun searchUsernamesFromRelays(query: String): List<UserSearchResult> {
-        // Simplified - returns empty for now
-        // Full implementation would send REQ with search filter to Nostr relays
-        // and parse kind:0 metadata events for "name" field matching
-        return emptyList()
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "🔍 Searching relays for: $query")
+                
+                val results = mutableListOf<UserSearchResult>()
+                
+                // Create a filter for kind:0 metadata events
+                val filter = NostrFilter(
+                    kinds = listOf(NostrKind.METADATA),
+                    limit = 100
+                )
+                
+                val latch = java.util.concurrent.CountDownLatch(1)
+                var receivedCount = 0
+                
+                relayManager.subscribe(filter, "username-search-$query", handler = { event ->
+                    try {
+                        val metadata = JsonParser.parseString(event.content).asJsonObject
+                        val name = metadata.get("name")?.asString
+                        
+                        if (name != null && name.lowercase().contains(query.lowercase())) {
+                            synchronized(results) {
+                                if (results.none { it.pubkey == event.pubkey }) {
+                                    results.add(UserSearchResult(name, event.pubkey))
+                                    usernameCache[name.lowercase()] = event.pubkey
+                                }
+                            }
+                        }
+                        
+                        receivedCount++
+                        if (receivedCount >= 50 || results.size >= 10) {
+                            latch.countDown()
+                        }
+                    } catch (e: Exception) {
+                        // Ignore parsing errors
+                    }
+                })
+                
+                // Wait with timeout
+                latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+                relayManager.unsubscribe("username-search-$query")
+                
+                Log.d(TAG, "🔍 Found ${results.size} users matching '$query'")
+                results.take(10)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to search usernames: ${e.message}")
+                emptyList()
+            }
+        }
     }
 }
 

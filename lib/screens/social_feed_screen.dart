@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import '../services/snap_service.dart';
 import 'profile_setup_screen.dart';
@@ -403,19 +404,112 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
   
   void _openProfileSetup() async {
     HapticFeedback.mediumImpact();
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ProfileSetupScreen()),
-    );
-    if (result != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✅ Profile created: @${result['username']}'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ),
+    
+    // Check if user already has a profile
+    final prefs = await SharedPreferences.getInstance();
+    final existingUsername = prefs.getString('username');
+    final existingDisplayName = prefs.getString('displayName') ?? prefs.getString('nickname');
+    
+    if (existingUsername != null && existingUsername.isNotEmpty) {
+      // Show existing profile instead of setup
+      _showExistingProfile(existingUsername, existingDisplayName ?? '');
+    } else {
+      // No profile yet - open setup
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ProfileSetupScreen()),
       );
+      if (result != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Profile created: @${result['username']}'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
+  }
+  
+  void _showExistingProfile(String username, String displayName) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1C1C1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[600],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            CircleAvatar(
+              radius: 40,
+              backgroundColor: _instaPink,
+              child: Text(
+                (displayName.isNotEmpty ? displayName : username)[0].toUpperCase(),
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              displayName.isNotEmpty ? displayName : username,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '@$username',
+              style: TextStyle(fontSize: 16, color: Colors.grey[400]),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(LucideIcons.checkCircle, size: 16, color: Colors.green),
+                      SizedBox(width: 6),
+                      Text('Profile Active', style: TextStyle(color: Colors.green, fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.grey),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Close'),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
   }
   
   void _showSearchSheet() {

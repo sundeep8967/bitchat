@@ -552,6 +552,21 @@ class BluetoothMeshService(private val context: Context) {
                     // Relay to other peers (gossip)
                     Log.d(TAG, "📤 Relaying new snap to mesh")
                     connectionManager.broadcastPacket(routed)
+                    
+                    // Show notification for new snap
+                    try {
+                        val snap = com.bitchat.android.model.SnapPacket.decode(routed.packet.payload)
+                        if (snap != null) {
+                            com.bitchat.android.service.SnapNotificationHelper.showSnapNotification(
+                                context = context,
+                                senderAlias = "", // Anonymous for now
+                                senderId = routed.packet.senderID.joinToString("") { "%02x".format(it) },
+                                snapId = snap.snapIdHex()
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to show snap notification: ${e.message}")
+                    }
                 }
             }
             

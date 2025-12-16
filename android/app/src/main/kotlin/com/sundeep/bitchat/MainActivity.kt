@@ -222,6 +222,43 @@ class MainActivity: FlutterActivity(), BluetoothMeshDelegate {
                         result.error("INVALID_ARGS", "query required", null)
                     }
                 }
+                "broadcastSnapGlobal" -> {
+                    val content = call.argument<String>("content")
+                    val contentType = call.argument<String>("contentType") ?: "image/jpeg"
+                    val snapId = call.argument<String>("snapId") ?: java.util.UUID.randomUUID().toString()
+                    val ttlMs = call.argument<Long>("ttlMs") ?: (24 * 60 * 60 * 1000L)
+                    
+                    if (content != null) {
+                        try {
+                            val nostrTransport = com.bitchat.android.nostr.NostrTransport.getInstance(this@MainActivity)
+                            nostrTransport.broadcastSnapViaNostr(content, contentType, snapId, ttlMs)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("BROADCAST_FAILED", e.message, null)
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "content required", null)
+                    }
+                }
+                "sendSnapToUser" -> {
+                    val recipient = call.argument<String>("recipient")
+                    val content = call.argument<String>("content")
+                    val contentType = call.argument<String>("contentType") ?: "image/jpeg"
+                    val snapId = call.argument<String>("snapId") ?: java.util.UUID.randomUUID().toString()
+                    val ttlMs = call.argument<Long>("ttlMs") ?: (24 * 60 * 60 * 1000L)
+                    
+                    if (recipient != null && content != null) {
+                        try {
+                            val nostrTransport = com.bitchat.android.nostr.NostrTransport.getInstance(this@MainActivity)
+                            nostrTransport.sendSnapToUser(recipient, content, contentType, snapId, ttlMs)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SEND_FAILED", e.message, null)
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "recipient and content required", null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// ProfileSetupScreen: Complete profile setup with username, display name and photo
 class ProfileSetupScreen extends StatefulWidget {
@@ -197,6 +198,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       if (!mounted) return;
       
       if (result == 'success') {
+        // Save to SharedPreferences for local access
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('username', username);
+        await prefs.setString('displayName', displayName.isNotEmpty ? displayName : username);
+        if (bio.isNotEmpty) {
+          await prefs.setString('bio', bio);
+        }
+        
         HapticFeedback.heavyImpact();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -215,8 +224,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         });
       }
     } catch (e) {
-      // For testing, simulate success
+      // For testing, simulate success and save locally
       if (mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('username', username);
+        await prefs.setString('displayName', displayName.isNotEmpty ? displayName : username);
+        
         Navigator.pop(context, {
           'username': username,
           'displayName': displayName,

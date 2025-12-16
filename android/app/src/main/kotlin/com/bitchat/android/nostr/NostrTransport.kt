@@ -563,4 +563,113 @@ class NostrTransport(
     fun cleanup() {
         transportScope.cancel()
     }
+    
+    // ========== GLOBAL SNAPS VIA NOSTR ==========
+    
+    /**
+     * Broadcast a snap to all followers via Nostr (kind:20 ephemeral events)
+     * Uses ephemeral events so they don't persist forever on relays
+     */
+    fun broadcastSnapViaNostr(
+        contentBase64: String,
+        contentType: String,
+        snapId: String,
+        ttlMs: Long = 24 * 60 * 60 * 1000 // 24 hours
+    ) {
+        transportScope.launch {
+            try {
+                val senderIdentity = NostrIdentityBridge.getCurrentNostrIdentity(context)
+                if (senderIdentity == null) {
+                    Log.e(TAG, "No Nostr identity available for snap broadcast")
+                    return@launch
+                }
+                
+                val expiresAt = System.currentTimeMillis() + ttlMs
+                
+                // Create ephemeral kind:20 event with snap data
+                // Kind 20-29 are ephemeral per NIP-16
+                val snapContent = org.json.JSONObject().apply {
+                    put("type", "snap")
+                    put("snapId", snapId)
+                    put("contentType", contentType)
+                    put("content", contentBase64)
+                    put("expiresAt", expiresAt)
+                }.toString()
+                
+                val event = NostrEvent(
+                    pubkey = senderIdentity.publicKeyHex,
+                    createdAt = (System.currentTimeMillis() / 1000).toInt(),
+                    kind = 20, // Ephemeral event
+                    tags = listOf(
+                        listOf("t", "snap"), // Tag for filtering
+                        listOf("expiration", (expiresAt / 1000).toString())
+                    ),
+                    content = snapContent
+                ).sign(senderIdentity.privateKeyHex)
+                
+                NostrRelayManager.getInstance(context).sendEvent(event)
+                Log.d(TAG, "📤 Broadcasted snap via Nostr: ${event.id.take(8)}...")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to broadcast snap via Nostr: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Send a snap to a specific user via gift-wrapped DM
+     */
+    fun sendSnapToUser(
+        recipientNpubOrHex: String,
+        contentBase64: String,
+        contentType: String,
+        snapId: String,
+        ttlMs: Long = 24 * 60 * 60 * 1000
+    ) {
+        transportScope.launch {
+            try {
+                val senderIdentity = NostrIdentityBridge.getCurrentNostrIdentity(context)
+                if (senderIdentity == null) {
+                    Log.e(TAG, "No Nostr identity for snap DM")
+                    return@launch
+                }
+                
+                // Decode recipient
+                val recipientHex = if (recipientNpubOrHex.startsWith("npub")) {
+                    val (_, bytes) = Bech32.decode(recipientNpubOrHex)
+                    bytes.joinToString("") { "%02x".format(it) }
+                } else {
+                    recipientNpubOrHex
+                }
+                
+                val expiresAt = System.currentTimeMillis() + ttlMs
+                
+                // Embed snap as JSON in the message
+                val snapContent = org.json.JSONObject().apply {
+                    put("bitchat_type", "snap")
+                    put("snapId", snapId)
+                    put("contentType", contentType)
+                    put("content", contentBase64)
+                    put("expiresAt", expiresAt)
+                }.toString()
+                
+                // Create gift-wrapped message
+                val giftWraps = NostrProtocol.createPrivateMessage(
+                    content = snapContent,
+                    recipientPubkey = recipientHex,
+                    senderIdentity = senderIdentity
+                )
+                
+                giftWraps.forEach { event ->
+                    NostrRelayManager.registerPendingGiftWrap(event.id)
+                    NostrRelayManager.getInstance(context).sendEvent(event)
+                }
+                
+                Log.d(TAG, "📤 Sent snap DM to ${recipientHex.take(8)}...")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send snap DM: ${e.message}")
+            }
+        }
+    }
 }
