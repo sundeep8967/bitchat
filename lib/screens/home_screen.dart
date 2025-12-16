@@ -51,15 +51,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: _currentNavIndex == 1 ? Colors.black : Colors.white,
-          border: Border(top: BorderSide(color: _currentNavIndex == 1 ? Colors.pinkAccent.withOpacity(0.2) : Colors.grey[200]!, width: 0.5)),
+          border: Border(top: BorderSide(color: _currentNavIndex == 1 ? const Color(0xFFE1306C).withOpacity(0.2) : Colors.grey[200]!, width: 0.5)),
         ),
         child: BottomNavigationBar(
           currentIndex: _currentNavIndex,
           onTap: (index) => setState(() => _currentNavIndex = index),
           backgroundColor: Colors.transparent, 
           elevation: 0,
-          selectedItemColor: _currentNavIndex == 1 ? Colors.pinkAccent : const Color(0xFF2E75FF),
-          unselectedItemColor: _currentNavIndex == 1 ? Colors.pinkAccent.withOpacity(0.4) : Colors.grey[400],
+          selectedItemColor: _currentNavIndex == 1 ? const Color(0xFFE1306C) : const Color(0xFF2E75FF),
+          unselectedItemColor: _currentNavIndex == 1 ? const Color(0xFFE1306C).withOpacity(0.4) : Colors.grey[400],
           showSelectedLabels: false,
           showUnselectedLabels: false,
           type: BottomNavigationBarType.fixed,
