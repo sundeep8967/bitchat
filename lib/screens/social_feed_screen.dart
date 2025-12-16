@@ -4,8 +4,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:async';
-import 'dart:ui';
 import '../services/snap_service.dart';
+import 'profile_setup_screen.dart';
 
 class SocialFeedScreen extends StatefulWidget {
   const SocialFeedScreen({super.key});
@@ -24,6 +24,11 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
   List<Snap> _snaps = [];
   StreamSubscription<Snap>? _snapSubscription;
   bool _isLoading = true;
+  
+  // Search
+  final _searchController = TextEditingController();
+  List<Map<String, String>> _searchResults = [];
+  bool _isSearching = false;
 
   @override
   void initState() {
@@ -35,6 +40,7 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
   @override
   void dispose() {
     _snapSubscription?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -220,7 +226,8 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
                   background: Container(color: Colors.black),
                 ),
                 actions: [
-                  _buildHeaderAction(LucideIcons.userPlus),
+                  // Profile Setup button
+                  _buildHeaderAction(LucideIcons.user, onTap: _openProfileSetup),
                   const SizedBox(width: 8),
                   _buildHeaderAction(LucideIcons.moreHorizontal),
                   const SizedBox(width: 20),
@@ -231,27 +238,30 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  child: Container(
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1C1C1E), // Dark Gray
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: _instaPink.withOpacity(0.3), width: 1),
-                    ),
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 16),
-                        Icon(LucideIcons.search, color: _instaPink, size: 20),
-                        const SizedBox(width: 12),
-                        Text(
-                          'Search Friends',
-                          style: TextStyle(
-                            color: _instaPink.withOpacity(0.7),
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
+                  child: GestureDetector(
+                    onTap: _showSearchSheet,
+                    child: Container(
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1C1C1E),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: _instaPink.withOpacity(0.3), width: 1),
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 16),
+                          Icon(LucideIcons.search, color: _instaPink, size: 20),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Search @username',
+                            style: TextStyle(
+                              color: _instaPink.withOpacity(0.7),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -388,16 +398,190 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
       ),
     );
   }
-
-  Widget _buildHeaderAction(IconData icon) {
-    return Container(
-      width: 40, height: 40,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1C1C1E),
-        shape: BoxShape.circle,
-        border: Border.all(color: _instaPink.withOpacity(0.3)),
+  
+  // ========== NEW METHODS ==========
+  
+  void _openProfileSetup() async {
+    HapticFeedback.mediumImpact();
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ProfileSetupScreen()),
+    );
+    if (result != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Profile created: @${result['username']}'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+  
+  void _showSearchSheet() {
+    HapticFeedback.mediumImpact();
+    _searchController.clear();
+    setState(() {
+      _searchResults = [];
+      _isSearching = false;
+    });
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Container(
+          height: MediaQuery.of(context).size.height * 0.7,
+          decoration: const BoxDecoration(
+            color: Color(0xFF1C1C1E),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              // Handle
+              Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(top: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[600],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Search input
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _instaPink.withOpacity(0.3)),
+                  ),
+                  child: TextField(
+                    controller: _searchController,
+                    style: const TextStyle(color: Colors.white),
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Search @username...',
+                      hintStyle: TextStyle(color: Colors.grey[600]),
+                      prefixIcon: Icon(LucideIcons.search, color: _instaPink),
+                      suffixIcon: _isSearching
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 20, height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: _instaPink),
+                              ),
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                    onChanged: (query) => _performSearch(query, setSheetState),
+                  ),
+                ),
+              ),
+              // Results
+              Expanded(
+                child: _searchResults.isEmpty
+                    ? Center(
+                        child: Text(
+                          _searchController.text.isEmpty
+                              ? 'Type a username to search'
+                              : 'No users found',
+                          style: TextStyle(color: Colors.grey[500]),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _searchResults.length,
+                        itemBuilder: (ctx, i) {
+                          final user = _searchResults[i];
+                          return ListTile(
+                            leading: Container(
+                              width: 48, height: 48,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: const LinearGradient(
+                                  colors: [_instaPurple, _instaPink],
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  (user['username'] ?? '?')[0].toUpperCase(),
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+                                ),
+                              ),
+                            ),
+                            title: Text('@${user['username']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            subtitle: Text('Tap to add friend', style: TextStyle(color: Colors.grey[500])),
+                            trailing: IconButton(
+                              icon: const Icon(LucideIcons.userPlus, color: _instaPink),
+                              onPressed: () {
+                                HapticFeedback.mediumImpact();
+                                Navigator.pop(ctx);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('✅ Added @${user['username']} as friend!'),
+                                    backgroundColor: Colors.green,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
       ),
-      child: Icon(icon, color: _instaPink, size: 20),
+    );
+  }
+  
+  Future<void> _performSearch(String query, void Function(void Function()) setSheetState) async {
+    if (query.length < 2) {
+      setSheetState(() => _searchResults = []);
+      return;
+    }
+    
+    setSheetState(() => _isSearching = true);
+    
+    try {
+      final results = await SnapService.instance.searchUsername(query);
+      if (mounted) {
+        setSheetState(() {
+          _searchResults = results;
+          _isSearching = false;
+        });
+      }
+    } catch (e) {
+      setSheetState(() => _isSearching = false);
+    }
+  }
+  
+  void _openSnapViewer(Snap snap) {
+    HapticFeedback.mediumImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _SnapViewerScreen(snap: snap),
+      ),
+    );
+  }
+
+  Widget _buildHeaderAction(IconData icon, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap ?? () => HapticFeedback.lightImpact(),
+      child: Container(
+        width: 40, height: 40,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1C1C1E),
+          shape: BoxShape.circle,
+          border: Border.all(color: _instaPink.withOpacity(0.3)),
+        ),
+        child: Icon(icon, color: _instaPink, size: 20),
+      ),
     );
   }
 
@@ -405,10 +589,7 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
     return Material(
       color: Colors.black,
       child: InkWell(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          // TODO: Open snap viewer
-        },
+        onTap: () => _openSnapViewer(snap),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: Row(
@@ -519,6 +700,172 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
         color: color,
         shape: BoxShape.circle, 
         boxShadow: [BoxShadow(color: color.withOpacity(0.6), blurRadius: 4)],
+      ),
+    );
+  }
+}
+
+// ========== SNAP VIEWER SCREEN ==========
+
+class _SnapViewerScreen extends StatefulWidget {
+  final Snap snap;
+  
+  const _SnapViewerScreen({required this.snap});
+
+  @override
+  State<_SnapViewerScreen> createState() => _SnapViewerScreenState();
+}
+
+class _SnapViewerScreenState extends State<_SnapViewerScreen> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fadeAnimation;
+  
+  static const Color _instaPink = Color(0xFFE1306C);
+  static const Color _instaPurple = Color(0xFFC13584);
+  
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+    _controller.forward();
+  }
+  
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onTap: () => Navigator.pop(context),
+        onVerticalDragEnd: (details) {
+          if (details.primaryVelocity! > 300) {
+            Navigator.pop(context);
+          }
+        },
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Snap image
+              if (widget.snap.contentType.startsWith('image/'))
+                InteractiveViewer(
+                  panEnabled: true,
+                  minScale: 0.5,
+                  maxScale: 4,
+                  child: Image.memory(
+                    widget.snap.content,
+                    fit: BoxFit.contain,
+                  ),
+                )
+              else
+                const Center(
+                  child: Icon(LucideIcons.fileQuestion, color: Colors.white54, size: 64),
+                ),
+              
+              // Top gradient overlay
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  height: 120,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.black.withOpacity(0.7), Colors.transparent],
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Close button
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 16,
+                child: IconButton(
+                  icon: const Icon(LucideIcons.x, color: Colors.white, size: 28),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+              
+              // Bottom info
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  padding: EdgeInsets.only(
+                    left: 20,
+                    right: 20,
+                    bottom: MediaQuery.of(context).padding.bottom + 20,
+                    top: 20,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [Colors.black.withOpacity(0.8), Colors.transparent],
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [_instaPurple, _instaPink]),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(LucideIcons.timer, color: Colors.white, size: 14),
+                                const SizedBox(width: 6),
+                                Text(
+                                  widget.snap.timeRemainingString,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'via mesh',
+                            style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'From: ${widget.snap.senderIdHex.substring(0, 8)}...',
+                        style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

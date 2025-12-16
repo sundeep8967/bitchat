@@ -62,6 +62,22 @@ class SnapService {
     });
     return _snapStream!;
   }
+  
+  /// Search for users by username via Nostr
+  Future<List<Map<String, String>>> searchUsername(String query) async {
+    try {
+      final result = await _channel.invokeMethod('searchUsername', {
+        'query': query,
+      });
+      if (result is List) {
+        return result.map((item) => Map<String, String>.from(item as Map)).toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ SnapService.searchUsername failed: $e');
+      return [];
+    }
+  }
 }
 
 /// Snap model representing a P2P social snap
@@ -97,6 +113,11 @@ class Snap {
   }
   
   bool get isExpired => DateTime.now().isAfter(expiresAt);
+  
+  /// Sender ID hex (first 16 chars of pubkey)
+  String get senderIdHex => senderPubKey.length >= 16 
+      ? senderPubKey.substring(0, 16) 
+      : senderPubKey;
   
   /// Time remaining until expiry
   Duration get timeRemaining => expiresAt.difference(DateTime.now());
