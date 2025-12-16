@@ -18,7 +18,10 @@ enum class MessageType(val value: UByte) {
     FRAGMENT(0x20u), // Fragmentation for large packets
     REQUEST_SYNC(0x21u), // GCS-based sync request
     FILE_TRANSFER(0x22u), // File transfer packet (BLE voice notes, etc.)
-    SNAP(0x30u); // P2P social snap (torrent-like ephemeral content)
+    SNAP(0x30u), // P2P social snap (torrent-like ephemeral content)
+    PIECE_REQUEST(0x31u),  // Request specific piece from peer
+    PIECE_RESPONSE(0x32u), // Response with piece data
+    PIECE_HAVE(0x33u);     // Announce which pieces we have (bitfield)
 
     companion object {
         fun fromValue(value: UByte): MessageType? {
