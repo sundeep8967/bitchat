@@ -64,6 +64,18 @@ class BluetoothMeshService(private val context: Context) {
     // P2P Social Snap support (torrent-like content distribution)
     private val snapLocalCache = com.bitchat.android.snap.SnapLocalCache(context)
     private val snapPacketHandler = com.bitchat.android.snap.SnapPacketHandler(snapLocalCache)
+    
+    // BitTorrent-style piece transfer for reliable downloads
+    private val torrentDownloader by lazy {
+        com.bitchat.android.snap.TorrentDownloader(
+            scope = serviceScope,
+            sendPieceRequest = { contentId, pieceIndex, toPeerID -> sendPieceRequest(contentId, pieceIndex, toPeerID) },
+            onDownloadComplete = { contentId, content -> onTorrentDownloadComplete(contentId, content) }
+        )
+    }
+    // Active chunked uploads (content we can serve pieces from)
+    private val activeChunks = java.util.concurrent.ConcurrentHashMap<String, com.bitchat.android.snap.ChunkedContent>()
+    
     // Service-level notification manager for background (no-UI) DMs
     private val serviceNotificationManager = com.bitchat.android.ui.NotificationManager(
         context.applicationContext,
@@ -542,6 +554,57 @@ class BluetoothMeshService(private val context: Context) {
                     connectionManager.broadcastPacket(routed)
                 }
             }
+            
+            override fun handlePieceRequest(routed: RoutedPacket) {
+                // BitTorrent: Peer requests a specific piece from us
+                val fromPeer = routed.peerID ?: return
+                val request = com.bitchat.android.snap.PieceRequestPacket.decode(routed.packet.payload) ?: return
+                val contentIdHex = request.contentId.joinToString("") { "%02x".format(it) }
+                
+                Log.d(TAG, "📥 PIECE_REQUEST: piece ${request.pieceIndex} of ${contentIdHex.take(8)}... from $fromPeer")
+                
+                // Check if we have this content
+                val chunked = activeChunks[contentIdHex] ?: run {
+                    Log.w(TAG, "❌ Don't have content $contentIdHex")
+                    return
+                }
+                
+                // Get the piece
+                val pieceData = chunked.getPiece(request.pieceIndex) ?: run {
+                    Log.w(TAG, "❌ Don't have piece ${request.pieceIndex}")
+                    return
+                }
+                
+                // Send response
+                sendPieceResponse(request.contentId, request.pieceIndex, pieceData, fromPeer)
+            }
+            
+            override fun handlePieceResponse(routed: RoutedPacket) {
+                // BitTorrent: Received a piece from peer
+                val fromPeer = routed.peerID ?: return
+                val response = com.bitchat.android.snap.PieceResponsePacket.decode(routed.packet.payload) ?: return
+                
+                Log.d(TAG, "📦 PIECE_RESPONSE: piece ${response.pieceIndex} (${response.pieceData.size} bytes) from $fromPeer")
+                
+                // Pass to downloader for verification and storage
+                torrentDownloader.handlePieceResponse(
+                    response.contentId,
+                    response.pieceIndex,
+                    response.pieceData,
+                    fromPeer
+                )
+            }
+            
+            override fun handlePieceHave(routed: RoutedPacket) {
+                // BitTorrent: Peer announces which pieces they have
+                val fromPeer = routed.peerID ?: return
+                val have = com.bitchat.android.snap.PieceHavePacket.decode(routed.packet.payload) ?: return
+                
+                Log.d(TAG, "📊 PIECE_HAVE: ${have.pieceCount} pieces bitfield from $fromPeer")
+                
+                // Update downloader's peer tracking
+                torrentDownloader.handlePeerBitfield(have.contentId, fromPeer, have.bitfield)
+            }
         }
         
         // BluetoothConnectionManager delegates
@@ -926,6 +989,91 @@ class BluetoothMeshService(private val context: Context) {
     
     fun removeSnapListener(listener: (com.bitchat.android.model.SnapPacket) -> Unit) {
         snapLocalCache.removeListener(listener)
+    }
+    
+    // ========== BitTorrent Piece Transfer Helpers ==========
+    
+    /**
+     * Send a PIECE_REQUEST to a specific peer
+     */
+    private suspend fun sendPieceRequest(contentId: ByteArray, pieceIndex: Int, toPeerID: String) {
+        val request = com.bitchat.android.snap.PieceRequestPacket(contentId, pieceIndex)
+        val packet = BitchatPacket(
+            version = 1u,
+            type = MessageType.PIECE_REQUEST.value,
+            senderID = hexStringToByteArray(myPeerID),
+            recipientID = hexStringToByteArray(toPeerID),
+            timestamp = System.currentTimeMillis().toULong(),
+            payload = request.encode(),
+            signature = null,
+            ttl = 2u  // Direct request, low TTL
+        )
+        
+        Log.d(TAG, "📤 PIECE_REQUEST: piece $pieceIndex to $toPeerID")
+        connectionManager.sendPacketToPeer(toPeerID, packet)
+    }
+    
+    /**
+     * Send a PIECE_RESPONSE with piece data to a peer
+     */
+    private fun sendPieceResponse(contentId: ByteArray, pieceIndex: Int, pieceData: ByteArray, toPeerID: String) {
+        serviceScope.launch {
+            val response = com.bitchat.android.snap.PieceResponsePacket(contentId, pieceIndex, pieceData)
+            val packet = BitchatPacket(
+                version = 2u,  // Use v2 for large payloads
+                type = MessageType.PIECE_RESPONSE.value,
+                senderID = hexStringToByteArray(myPeerID),
+                recipientID = hexStringToByteArray(toPeerID),
+                timestamp = System.currentTimeMillis().toULong(),
+                payload = response.encode(),
+                signature = null,
+                ttl = 2u
+            )
+            
+            Log.d(TAG, "📤 PIECE_RESPONSE: piece $pieceIndex (${pieceData.size} bytes) to $toPeerID")
+            connectionManager.sendPacketToPeer(toPeerID, packet)
+        }
+    }
+    
+    /**
+     * Broadcast our bitfield (which pieces we have) for a content
+     */
+    private fun broadcastPieceHave(contentId: ByteArray, pieceCount: Int, bitfield: ByteArray) {
+        serviceScope.launch {
+            val have = com.bitchat.android.snap.PieceHavePacket(contentId, pieceCount, bitfield)
+            val packet = BitchatPacket(
+                version = 1u,
+                type = MessageType.PIECE_HAVE.value,
+                senderID = hexStringToByteArray(myPeerID),
+                recipientID = SpecialRecipients.BROADCAST,
+                timestamp = System.currentTimeMillis().toULong(),
+                payload = have.encode(),
+                signature = null,
+                ttl = MAX_TTL
+            )
+            
+            Log.d(TAG, "📢 PIECE_HAVE: broadcasting bitfield for ${pieceCount} pieces")
+            connectionManager.broadcastPacket(RoutedPacket(packet))
+        }
+    }
+    
+    /**
+     * Called when TorrentDownloader completes a download
+     */
+    private fun onTorrentDownloadComplete(contentIdHex: String, content: ByteArray) {
+        Log.d(TAG, "✅ Torrent download complete: ${contentIdHex.take(16)}... (${content.size} bytes)")
+        
+        // Store the complete content - could be a snap or other content type
+        // For now, we'll try to decode as a snap
+        try {
+            val snap = com.bitchat.android.model.SnapPacket.decode(content)
+            if (snap != null && !snap.isExpired()) {
+                snapLocalCache.store(snap)
+                Log.d(TAG, "📦 Stored snap from torrent download: ${snap.snapIdHex().take(16)}...")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Downloaded content is not a snap: ${e.message}")
+        }
     }
 
     /**

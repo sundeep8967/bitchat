@@ -149,6 +149,9 @@ class PacketProcessor(private val myPeerID: String) {
             MessageType.FRAGMENT -> handleFragment(routed)
             MessageType.REQUEST_SYNC -> handleRequestSync(routed)
             MessageType.SNAP -> delegate?.handleSnap(routed)  // P2P social snap
+            MessageType.PIECE_REQUEST -> delegate?.handlePieceRequest(routed)  // BitTorrent piece request
+            MessageType.PIECE_RESPONSE -> delegate?.handlePieceResponse(routed)  // BitTorrent piece data
+            MessageType.PIECE_HAVE -> delegate?.handlePieceHave(routed)  // BitTorrent bitfield
             else -> {
                 // Handle private packet types (address check required)
                 if (packetRelayManager.isPacketAddressedToMe(packet)) {
@@ -320,6 +323,9 @@ interface PacketProcessorDelegate {
     fun handleFragment(packet: BitchatPacket): BitchatPacket?
     fun handleRequestSync(routed: RoutedPacket)
     fun handleSnap(routed: RoutedPacket)  // P2P social snap
+    fun handlePieceRequest(routed: RoutedPacket)  // BitTorrent piece request
+    fun handlePieceResponse(routed: RoutedPacket)  // BitTorrent piece data
+    fun handlePieceHave(routed: RoutedPacket)  // BitTorrent bitfield
     
     // Communication
     fun sendAnnouncementToPeer(peerID: String)

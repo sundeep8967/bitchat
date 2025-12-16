@@ -108,6 +108,34 @@ class ChunkedContent private constructor(
         }
         
         private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
+        
+        /**
+         * Decode metadata from transmission
+         */
+        fun decodeMetadata(data: ByteArray): ChunkedContent? {
+            try {
+                val buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN)
+                
+                val pieceSize = buffer.int
+                val totalSize = buffer.long
+                val pieceCount = buffer.int
+                
+                val merkleRoot = ByteArray(32)
+                buffer.get(merkleRoot)
+                
+                val pieceHashes = mutableListOf<ByteArray>()
+                repeat(pieceCount) {
+                    val hash = ByteArray(32)
+                    buffer.get(hash)
+                    pieceHashes.add(hash)
+                }
+                
+                return fromMetadata(merkleRoot, pieceSize, totalSize, pieceHashes)
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to decode metadata: ${e.message}")
+                return null
+            }
+        }
     }
     
     val pieceCount: Int get() = pieceHashes.size
@@ -232,33 +260,9 @@ class ChunkedContent private constructor(
         return buffer.array()
     }
     
-    companion object {
-        /**
-         * Decode metadata from transmission
-         */
-        fun decodeMetadata(data: ByteArray): ChunkedContent? {
-            try {
-                val buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN)
-                
-                val pieceSize = buffer.int
-                val totalSize = buffer.long
-                val pieceCount = buffer.int
-                
-                val merkleRoot = ByteArray(32)
-                buffer.get(merkleRoot)
-                
-                val pieceHashes = mutableListOf<ByteArray>()
-                repeat(pieceCount) {
-                    val hash = ByteArray(32)
-                    buffer.get(hash)
-                    pieceHashes.add(hash)
-                }
-                
-                return fromMetadata(merkleRoot, pieceSize, totalSize, pieceHashes)
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Failed to decode metadata: ${e.message}")
-                return null
-            }
-        }
+    // Static helper for sha256 (used by addPiece)
+    private fun sha256(data: ByteArray): ByteArray {
+        return java.security.MessageDigest.getInstance("SHA-256").digest(data)
     }
 }
+
