@@ -28,12 +28,26 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   String? _errorMessage;
   Timer? _debounceTimer;
   bool _isClaiming = false;
-  int _currentStep = 0; // 0: Photo, 1: Display Name, 2: Username
+  int _currentStep = 0; // 0: Photo, 1: Username (simplified - displayName comes from onboarding)
+  String _displayName = ''; // Loaded from SharedPreferences
   
   // Instagram-style colors
   static const _instaPink = Color(0xFFE1306C);
   static const _instaPurple = Color(0xFFC13584);
   static const _instaOrange = Color(0xFFF56040);
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadDisplayName();
+  }
+  
+  Future<void> _loadDisplayName() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _displayName = prefs.getString('displayName') ?? prefs.getString('nickname') ?? '';
+    });
+  }
   
   @override
   void dispose() {
@@ -172,8 +186,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   
   Future<void> _createProfile() async {
     final username = _usernameController.text.trim().toLowerCase();
-    final displayName = _displayNameController.text.trim();
-    final bio = _bioController.text.trim();
+    // Use displayName from onboarding (loaded in initState)
+    final displayName = _displayName.isNotEmpty ? _displayName : username;
     
     if (username.isEmpty || _status != UsernameStatus.available) return;
     
@@ -190,8 +204,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       
       final result = await _channel.invokeMethod('claimProfile', {
         'username': username,
-        'displayName': displayName.isNotEmpty ? displayName : username,
-        'bio': bio,
+        'displayName': displayName,
         'profileImage': profileImageBase64,
       });
       
@@ -243,9 +256,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
   
   void _nextStep() {
-    if (_currentStep < 2) {
+    if (_currentStep < 1) {
       setState(() => _currentStep++);
-      if (_currentStep == 2) {
+      if (_currentStep == 1) {
         _usernameController.addListener(_onUsernameChanged);
       }
     } else {
@@ -264,8 +277,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   bool get _canProceed {
     switch (_currentStep) {
       case 0: return true; // Photo is optional
-      case 1: return _displayNameController.text.trim().isNotEmpty;
-      case 2: return _status == UsernameStatus.available;
+      case 1: return _status == UsernameStatus.available; // Username step
       default: return false;
     }
   }
@@ -302,10 +314,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: Row(
-                children: List.generate(3, (i) => Expanded(
+                children: List.generate(2, (i) => Expanded(
                   child: Container(
                     height: 4,
-                    margin: EdgeInsets.only(right: i < 2 ? 8 : 0),
+                    margin: EdgeInsets.only(right: i < 1 ? 8 : 0),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(2),
                       gradient: i <= _currentStep
@@ -375,9 +387,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       case 0:
         return _buildPhotoStep();
       case 1:
-        return _buildDisplayNameStep();
-      case 2:
-        return _buildUsernameStep();
+        return _buildUsernameStep(); // Skip displayName step - already from onboarding
       default:
         return const SizedBox();
     }
