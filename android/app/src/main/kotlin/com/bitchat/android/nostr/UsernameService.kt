@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.google.gson.JsonObject
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +19,7 @@ class UsernameService private constructor(private val context: Context) {
     
     companion object {
         private const val TAG = "UsernameService"
+        private const val BITCHAT_DIRECTORY_TAG = "bitchat-user-v1" // Tag for reliable discovery
         
         @Volatile
         private var instance: UsernameService? = null
@@ -137,7 +139,7 @@ class UsernameService private constructor(private val context: Context) {
                 // Create metadata JSON per NIP-01
                 val metadata = mutableMapOf(
                     "name" to normalized,
-                    "nip05" to "${normalized}@bitchat.app"
+                    "nip05" to "${normalized}@bitchat.org"
                 )
                 
                 // Add optional fields
@@ -165,6 +167,9 @@ class UsernameService private constructor(private val context: Context) {
                 // Publish to relays
                 relayManager.sendEvent(event)
                 
+                // Publish to BitChat directory (Standard Relays via Tag)
+                publishDirectoryEntry(identity, normalized)
+                
                 // Save locally
                 _myUsername.value = normalized
                 val prefs = context.getSharedPreferences("bitchat_username", Context.MODE_PRIVATE)
@@ -184,6 +189,157 @@ class UsernameService private constructor(private val context: Context) {
                 Log.e(TAG, "Failed to claim profile: ${e.message}")
                 ClaimResult.Failed(e.message ?: "Unknown error")
             }
+        }
+    }
+    
+    /**
+     * Get all BitChat users using Tag-based Directory (#t = bitchat-user-v1)
+     * This works on standard relays (Damus, Offchain, etc.) without search support
+     */
+    suspend fun getAllBitChatUsers(): List<UserSearchResult> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "🔍 Fetching directory users (Tag: $BITCHAT_DIRECTORY_TAG)...")
+                
+                // Ensure connected
+                if (!relayManager.isConnected.value) {
+                    relayManager.connect()
+                    delay(1500)
+                }
+                
+                val results = mutableListOf<UserSearchResult>()
+                
+                // Query for Kind 1 events with our directory tag
+                // This is supported by ALL public relays
+                val filter = NostrFilter(
+                    kinds = listOf(NostrKind.TEXT_NOTE),
+                    tagFilters = mapOf("t" to listOf(BITCHAT_DIRECTORY_TAG)),
+                    limit = 500
+                )
+                
+                val latch = java.util.concurrent.CountDownLatch(1)
+                val eoseCount = java.util.concurrent.atomic.AtomicInteger(0)
+                val expectedRelays = 5 // Wait for best effort
+                
+                val subscriptionId = "directory-fetch-${System.currentTimeMillis()}"
+                
+                relayManager.subscribe(
+                    filter = filter,
+                    id = subscriptionId,
+                    handler = { event ->
+                        try {
+                            // Directory entries contain JSON with username
+                            // Content: {"username": "emu7", "joined": 123456789}
+                            if (event.content.startsWith("{")) {
+                                val data = JsonParser.parseString(event.content).asJsonObject
+                                val username = data.get("username")?.asString
+                                
+                                if (username != null) {
+                                    synchronized(results) {
+                                        if (results.none { it.pubkey == event.pubkey }) {
+                                            // Unique user found
+                                            Log.d(TAG, "📥 Directory User: $username")
+                                            results.add(UserSearchResult(username, event.pubkey))
+                                            usernameCache[username.lowercase()] = event.pubkey
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            // Ignore invalid entries
+                        }
+                    },
+                    onEose = { _ ->
+                        if (eoseCount.incrementAndGet() >= 2) { // 2 relays is enough for "fast" load
+                           latch.countDown()
+                        }
+                    }
+                )
+                
+                // Wait up to 5 seconds
+                latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                relayManager.unsubscribe(subscriptionId)
+                
+                Log.d(TAG, "✅ Found ${results.size} users in directory")
+                results.sortedBy { it.username }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch directory: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+    
+    /**
+     * Publish a directory entry so others can find this user via tags
+     */
+    private suspend fun publishDirectoryEntry(identity: com.bitchat.android.nostr.NostrIdentity, username: String) {
+        try {
+            val content = JsonObject().apply {
+                addProperty("username", username)
+                addProperty("joined", System.currentTimeMillis())
+                addProperty("client", "BitChat")
+            }.toString()
+            
+            val event = NostrEvent.createTextNote(
+                content = content,
+                publicKeyHex = identity.publicKeyHex,
+                privateKeyHex = identity.privateKeyHex,
+                tags = listOf(listOf("t", BITCHAT_DIRECTORY_TAG))
+            )
+            
+            relayManager.sendEvent(event)
+            Log.d(TAG, "📢 Published directory entry for $username")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to publish directory entry: ${e.message}")
+        }
+    }
+    
+    /**
+     * STRESS TEST: Publish 10 users and fetch them back
+     */
+    suspend fun runDirectoryStressTest(): String {
+        return withContext(Dispatchers.IO) {
+            val report = StringBuilder()
+            report.append("🧪 Starting Directory Stress Test...\n")
+            
+            val testUsers = (1..10).map { "bot_test_${System.currentTimeMillis() % 1000}_$it" }
+            var publishedCount = 0
+            
+            report.append("📤 Publishing ${testUsers.size} users...\n")
+            
+            // 1. Publish 10 users
+            testUsers.forEach { username ->
+                try {
+                    // Generate a temp identity
+                    val seed = "test_bot_$username"
+                    val identity = NostrIdentityBridge.deriveIdentity(seed, context)
+                    
+                    publishDirectoryEntry(identity, username)
+                    publishedCount++
+                    delay(200) // Spread out slightly
+                } catch (e: Exception) {
+                    report.append("❌ Failed to publish $username: ${e.message}\n")
+                }
+            }
+            report.append("✅ Published $publishedCount users. Waiting 3s for propagation...\n")
+            
+            delay(3000)
+            
+            // 2. Fetch
+            report.append("🔍 Fetching directory...\n")
+            val users = getAllBitChatUsers()
+            
+            // 3. Verify
+            val foundCount = users.count { it.username.startsWith("bot_test_") }
+            report.append("📥 Found $foundCount / $publishedCount test users.\n")
+            
+            if (foundCount == publishedCount) {
+                report.append("🎉 SUCCESS: All users found via standard relays!")
+            } else {
+                report.append("⚠️ PARTIAL: Missing ${publishedCount - foundCount} users.")
+            }
+            
+            report.toString()
         }
     }
     
@@ -253,34 +409,57 @@ class UsernameService private constructor(private val context: Context) {
                 Log.d(TAG, "🔍 Querying relays for username: $username")
                 
                 // Create a filter for kind:0 metadata events
-                // We'll search across all profiles and filter by name field
                 val filter = NostrFilter(
                     kinds = listOf(NostrKind.METADATA),
-                    limit = 100
+                    limit = 500  // Reasonable limit per relay
                 )
                 
                 var foundPubkey: String? = null
                 val latch = java.util.concurrent.CountDownLatch(1)
+                val eoseCount = java.util.concurrent.atomic.AtomicInteger(0)
+                val expectedRelays = 5  // We have 5 default relays (including relay.nostr.band)
                 
-                relayManager.subscribe(filter, "username-query-$username", handler = { event ->
-                    try {
-                        // Parse the content as JSON metadata
-                        val metadata = JsonParser.parseString(event.content).asJsonObject
-                        val name = metadata.get("name")?.asString?.lowercase()
+                val subscriptionId = "username-query-$username"
+                
+                relayManager.subscribe(
+                    filter = filter, 
+                    id = subscriptionId, 
+                    handler = { event ->
+                        try {
+                            // Parse the content as JSON metadata
+                            val metadata = JsonParser.parseString(event.content).asJsonObject
+                            val name = metadata.get("name")?.asString?.lowercase()
+                            
+                            // Also check nip05 for BitChat users
+                            val nip05 = metadata.get("nip05")?.asString?.lowercase()
+                            val isBitChatUser = nip05?.endsWith("@bitchat.org") == true
+                            
+                            if (name == username.lowercase()) {
+                                Log.d(TAG, "✅ Found username '$username' with pubkey: ${event.pubkey.take(16)}...")
+                                foundPubkey = event.pubkey
+                                usernameCache[username.lowercase()] = event.pubkey
+                                latch.countDown()  // Found it! Stop waiting
+                            }
+                        } catch (e: Exception) {
+                            // Ignore parsing errors
+                        }
+                    },
+                    onEose = { relayUrl ->
+                        val count = eoseCount.incrementAndGet()
+                        Log.d(TAG, "📥 EOSE from $relayUrl ($count/$expectedRelays)")
                         
-                        if (name == username.lowercase()) {
-                            foundPubkey = event.pubkey
-                            usernameCache[username.lowercase()] = event.pubkey
+                        // When all relays have sent EOSE, we've seen everything
+                        if (count >= expectedRelays) {
+                            Log.d(TAG, "✅ All relays sent EOSE for username query '$username'")
                             latch.countDown()
                         }
-                    } catch (e: Exception) {
-                        // Ignore parsing errors
                     }
-                })
+                )
                 
-                // Wait for results with timeout
-                latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
-                relayManager.unsubscribe("username-query-$username")
+                // Wait until either: match found OR all relays sent EOSE
+                // Also add a safety timeout of 30 seconds in case relays don't respond
+                latch.await(30, java.util.concurrent.TimeUnit.SECONDS)
+                relayManager.unsubscribe(subscriptionId)
                 
                 foundPubkey
             } catch (e: Exception) {
@@ -305,47 +484,68 @@ class UsernameService private constructor(private val context: Context) {
                      Log.e(TAG, "⚠️ SEARCH WARNING: Still offline after connection attempt. Search will likely fail or return only local results.")
                 }
 
-                Log.d(TAG, "🔍 Searching relays for: $query")
+                Log.d(TAG, "🔍 Searching with NIP-50 for: $query")
                 
                 val results = mutableListOf<UserSearchResult>()
                 
-                // Create a filter for kind:0 metadata events
+                // Use NIP-50 full-text search filter
+                // relay.nostr.band supports this - it's a dedicated search relay
                 val filter = NostrFilter(
                     kinds = listOf(NostrKind.METADATA),
-                    limit = 100
+                    search = query,  // NIP-50 search parameter!
+                    limit = 50
                 )
                 
                 val latch = java.util.concurrent.CountDownLatch(1)
-                var receivedCount = 0
+                val eoseReceived = java.util.concurrent.atomic.AtomicBoolean(false)
+                val subscriptionId = "nip50-search-$query"
                 
-                relayManager.subscribe(filter, "username-search-$query", handler = { event ->
-                    try {
-                        val metadata = JsonParser.parseString(event.content).asJsonObject
-                        val name = metadata.get("name")?.asString
-                        
-                        if (name != null && name.lowercase().contains(query.lowercase())) {
-                            synchronized(results) {
-                                if (results.none { it.pubkey == event.pubkey }) {
-                                    results.add(UserSearchResult(name, event.pubkey))
-                                    usernameCache[name.lowercase()] = event.pubkey
+                // Use relay.nostr.band which supports NIP-50 search
+                val searchRelayUrl = "wss://relay.nostr.band"
+                
+                // Ensure search relay is connected
+                relayManager.ensureConnectionsFor(setOf(searchRelayUrl))
+                delay(1000)  // Give time to connect
+                
+                relayManager.subscribe(
+                    filter = filter,
+                    id = subscriptionId,
+                    handler = { event ->
+                        try {
+                            val metadata = JsonParser.parseString(event.content).asJsonObject
+                            val name = metadata.get("name")?.asString
+                            
+                            // Only show BitChat users (with @bitchat.org nip05)
+                            val nip05 = metadata.get("nip05")?.asString?.lowercase()
+                            val isBitChatUser = nip05?.endsWith("@bitchat.org") == true
+                            
+                            if (name != null && isBitChatUser) {
+                                synchronized(results) {
+                                    if (results.none { it.pubkey == event.pubkey }) {
+                                        Log.d(TAG, "📥 NIP-50 found BitChat user: $name")
+                                        results.add(UserSearchResult(name, event.pubkey))
+                                        usernameCache[name.lowercase()] = event.pubkey
+                                    }
                                 }
                             }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error parsing search result: ${e.message}")
                         }
-                        
-                        receivedCount++
-                        if (receivedCount >= 50 || results.size >= 10) {
+                    },
+                    targetRelayUrls = listOf(searchRelayUrl),
+                    onEose = { relayUrl ->
+                        Log.d(TAG, "📥 NIP-50 Search EOSE from $relayUrl")
+                        if (eoseReceived.compareAndSet(false, true)) {
                             latch.countDown()
                         }
-                    } catch (e: Exception) {
-                        // Ignore parsing errors
                     }
-                })
+                )
                 
-                // Wait with timeout
-                latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
-                relayManager.unsubscribe("username-search-$query")
+                // Wait for EOSE from search relay (max 10 seconds)
+                latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                relayManager.unsubscribe(subscriptionId)
                 
-                Log.d(TAG, "🔍 Found ${results.size} users matching '$query'")
+                Log.d(TAG, "🔍 NIP-50 search found ${results.size} users matching '$query'")
                 results.take(10)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to search usernames: ${e.message}")

@@ -117,6 +117,30 @@ class SnapService {
       return [];
     }
   }
+  
+  /// Get all BitChat users (users with @bitchat.org NIP-05)
+  Future<List<Map<String, String>>> getAllBitChatUsers() async {
+    try {
+      final result = await _channel.invokeMethod('getAllBitChatUsers');
+      if (result is List) {
+        return result.map((item) => Map<String, String>.from(item as Map)).toList();
+      }
+      return [];
+    } catch (e) {
+      print('❌ SnapService.getAllBitChatUsers failed: $e');
+      return [];
+    }
+  }
+
+  /// Run directory stress test (Publish 10 users & verify)
+  Future<String> runDirectoryStressTest() async {
+    try {
+      final result = await _channel.invokeMethod('runDirectoryStressTest');
+      return result.toString();
+    } catch (e) {
+      return "Test Failed: $e";
+    }
+  }
 }
 
 /// Snap model representing a P2P social snap

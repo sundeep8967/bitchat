@@ -15,7 +15,8 @@ data class NostrFilter(
     val since: Int? = null,
     val until: Int? = null,
     val limit: Int? = null,
-    private val tagFilters: Map<String, List<String>>? = null
+    private val tagFilters: Map<String, List<String>>? = null,
+    val search: String? = null  // NIP-50: Full-text search query
 ) {
     
     companion object {
@@ -90,6 +91,9 @@ data class NostrFilter(
             src.until?.let { jsonObject.addProperty("until", it) }
             src.limit?.let { jsonObject.addProperty("limit", it) }
             
+            // NIP-50 search parameter
+            src.search?.let { jsonObject.addProperty("search", it) }
+            
             // Tag filters with # prefix
             src.tagFilters?.forEach { (tag, values) ->
                 jsonObject.add("#$tag", context.serialize(values))
@@ -109,6 +113,7 @@ data class NostrFilter(
         private var since: Int? = null
         private var until: Int? = null
         private var limit: Int? = null
+        private var search: String? = null
         private val tagFilters = mutableMapOf<String, List<String>>()
         
         fun ids(vararg ids: String) = apply { this.ids = ids.toList() }
@@ -117,6 +122,7 @@ data class NostrFilter(
         fun since(timestamp: Long) = apply { this.since = (timestamp / 1000).toInt() }
         fun until(timestamp: Long) = apply { this.until = (timestamp / 1000).toInt() }
         fun limit(count: Int) = apply { this.limit = count }
+        fun search(query: String) = apply { this.search = query }  // NIP-50
         
         fun tagP(vararg pubkeys: String) = apply { tagFilters["p"] = pubkeys.toList() }
         fun tagE(vararg eventIds: String) = apply { tagFilters["e"] = eventIds.toList() }
@@ -131,7 +137,8 @@ data class NostrFilter(
                 since = since,
                 until = until,
                 limit = limit,
-                tagFilters = tagFilters.toMap()
+                tagFilters = tagFilters.toMap(),
+                search = search
             )
         }
     }
@@ -197,6 +204,7 @@ data class NostrFilter(
         since?.let { parts.add("since=$it") }
         until?.let { parts.add("until=$it") }
         limit?.let { parts.add("limit=$it") }
+        search?.let { parts.add("search='$it'") }
         tagFilters?.let { filters ->
             filters.forEach { (tag, values) ->
                 parts.add("#$tag=${values.size}")

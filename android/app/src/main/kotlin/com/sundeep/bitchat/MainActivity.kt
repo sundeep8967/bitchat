@@ -222,6 +222,37 @@ class MainActivity: FlutterActivity(), BluetoothMeshDelegate {
                         result.error("INVALID_ARGS", "query required", null)
                     }
                 }
+                "getAllBitChatUsers" -> {
+                    GlobalScope.launch(Dispatchers.IO) {
+                        try {
+                            val usernameService = com.bitchat.android.nostr.UsernameService.getInstance(this@MainActivity)
+                            val results = usernameService.getAllBitChatUsers()
+                            val resultList = results.map { mapOf("username" to it.username, "pubkey" to it.pubkey) }
+                            withContext(Dispatchers.Main) {
+                                result.success(resultList)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("FETCH_FAILED", e.message, null)
+                            }
+                        }
+                    }
+                }
+                "runDirectoryStressTest" -> {
+                    GlobalScope.launch(Dispatchers.IO) {
+                        try {
+                            val usernameService = com.bitchat.android.nostr.UsernameService.getInstance(this@MainActivity)
+                            val report = usernameService.runDirectoryStressTest()
+                            withContext(Dispatchers.Main) {
+                                result.success(report)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("TEST_FAILED", e.message, null)
+                            }
+                        }
+                    }
+                }
                 "broadcastSnapGlobal" -> {
                     val content = call.argument<String>("content")
                     val contentType = call.argument<String>("contentType") ?: "image/jpeg"

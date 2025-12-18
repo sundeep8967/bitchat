@@ -869,8 +869,11 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
     _searchController.clear();
     setState(() {
       _searchResults = [];
-      _isSearching = false;
+      _isSearching = true; // Start with loading state
     });
+    
+    // Load all BitChat users when sheet opens
+    _loadAllBitChatUsers();
     
     showModalBottomSheet(
       context: context,
@@ -1004,6 +1007,22 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
       }
     } catch (e) {
       setSheetState(() => _isSearching = false);
+    }
+  }
+
+  Future<void> _loadAllBitChatUsers() async {
+    try {
+      final results = await SnapService.instance.getAllBitChatUsers();
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _isSearching = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSearching = false);
+      }
     }
   }
 

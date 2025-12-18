@@ -97,8 +97,12 @@ class NostrRelayManager private constructor() {
         val handler: (NostrEvent) -> Unit,
         val targetRelayUrls: Set<String>? = null, // null means all relays
         val createdAt: Long = System.currentTimeMillis(),
-        val originGeohash: String? = null // used for logging and grouping
+        val originGeohash: String? = null, // used for logging and grouping
+        val onEose: ((String) -> Unit)? = null // called when a relay sends EOSE
     )
+    
+    // Track EOSE received per subscription per relay
+    private val eoseReceivedPerSubscription = ConcurrentHashMap<String, MutableSet<String>>() // subId -> set of relay URLs
     
     // Event deduplication system
     private val eventDeduplicator = NostrEventDeduplicator.getInstance()
@@ -197,7 +201,7 @@ class NostrRelayManager private constructor() {
 
     // --- Internal helpers ---
 
-    private fun ensureConnectionsFor(relayUrls: Set<String>) {
+    fun ensureConnectionsFor(relayUrls: Set<String>) {
         // Ensure relays are tracked for UI/status
         relayUrls.forEach { url ->
             if (relaysList.none { it.url == url }) {
@@ -224,7 +228,8 @@ class NostrRelayManager private constructor() {
                 "wss://relay.damus.io",
                 "wss://relay.primal.net",
                 "wss://offchain.pub",
-                "wss://nostr21.com"
+                "wss://nostr21.com",
+                "wss://relay.nostr.band"  // NIP-50 search relay - profiles published here are immediately searchable
             )
             relaysList.addAll(defaultRelayUrls.map { Relay(it) })
             _relays.value = relaysList.toList()
@@ -301,19 +306,25 @@ class NostrRelayManager private constructor() {
     /**
      * Subscribe to events matching a filter
      * The subscription will be automatically re-established on reconnection
+     * @param onEose Optional callback when a relay sends End of Stored Events
      */
     fun subscribe(
         filter: NostrFilter,
         id: String = generateSubscriptionId(),
         handler: (NostrEvent) -> Unit,
-        targetRelayUrls: List<String>? = null
+        targetRelayUrls: List<String>? = null,
+        onEose: ((String) -> Unit)? = null
     ): String {
+        // Initialize EOSE tracking for this subscription
+        eoseReceivedPerSubscription[id] = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        
         // Store subscription info for persistent tracking
         val subscriptionInfo = SubscriptionInfo(
             id = id,
             filter = filter,
             handler = handler,
-            targetRelayUrls = targetRelayUrls?.toSet()
+            targetRelayUrls = targetRelayUrls?.toSet(),
+            onEose = onEose
         )
         
         activeSubscriptions[id] = subscriptionInfo
@@ -706,7 +717,17 @@ class NostrRelayManager private constructor() {
                 }
                 
                 is NostrResponse.EndOfStoredEvents -> {
-                    Log.v(TAG, "End of stored events for subscription: ${response.subscriptionId}")
+                    Log.v(TAG, "End of stored events for subscription: ${response.subscriptionId} from relay: $relayUrl")
+                    
+                    // Track that this relay sent EOSE for this subscription
+                    eoseReceivedPerSubscription[response.subscriptionId]?.add(relayUrl)
+                    
+                    // Call the onEose callback if registered
+                    activeSubscriptions[response.subscriptionId]?.onEose?.let { callback ->
+                        scope.launch(Dispatchers.Main) {
+                            callback(relayUrl)
+                        }
+                    }
                 }
                 
                 is NostrResponse.Ok -> {
